@@ -499,11 +499,14 @@ function addForest(scene, track, frac = 1) {
   bucket(conifers, 'con'); bucket(broads, 'broad'); bucket(bushes, 'bush');
 
   const m4 = new THREE.Matrix4();
-  // instanced mesh with a hand-set bounding sphere covering its instances
+  // Instanced mesh with a hand-set bounding sphere covering its instances.
+  // IMPORTANT: the sphere goes on the MESH (InstancedMesh.boundingSphere),
+  // never on the geometry — InstancedMesh.computeBoundingSphere() re-applies
+  // every instance matrix to geometry.boundingSphere, so a world-space sphere
+  // stored there gets transformed twice and culling clips visible chunks.
   const makeInst = (geo, mat, items, fill, height, castShadow) => {
     if (!items.length) return null;
-    const g = geo.clone();
-    const inst = new THREE.InstancedMesh(g, mat, items.length);
+    const inst = new THREE.InstancedMesh(geo, mat, items.length);
     let cx = 0, cy = 0, cz = 0;
     for (const p of items) { cx += p[0]; cy += p[1]; cz += p[2]; }
     cx /= items.length; cy /= items.length; cz /= items.length;
@@ -514,7 +517,7 @@ function addForest(scene, track, frac = 1) {
       const dx = items[i][0] - cx, dy = items[i][1] - cy, dz = items[i][2] - cz;
       rad = Math.max(rad, Math.hypot(dx, dy, dz));
     }
-    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, cy, cz), rad + height);
+    inst.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, cy, cz), rad + height);
     inst.castShadow = !!castShadow;
     scene.add(inst);
     return inst;
