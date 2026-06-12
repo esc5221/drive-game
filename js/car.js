@@ -434,10 +434,10 @@ export class CarVisual {
     const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x23272e, roughness: 0.92 });
     this.arms = [];
     this.shoulders = [
-      new THREE.Vector3(-0.58, 0.62, 0.02),      // left (driver at x -0.37)
-      new THREE.Vector3(-0.16, 0.62, 0.02),      // right
+      new THREE.Vector3(-0.56, 0.61, -0.07),     // left (driver at x -0.37)
+      new THREE.Vector3(-0.18, 0.61, -0.07),     // right
     ];
-    this.armLen = [0.31, 0.31];                   // upper, forearm
+    this.armLen = [0.34, 0.34];                   // upper, forearm
     for (let i = 0; i < 2; i++) {
       const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.043, 0.31, 4, 8), sleeveMat);
       const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.036, 0.31, 4, 8), sleeveMat);
@@ -576,9 +576,10 @@ export class CarVisual {
       this.cockpit.worldToLocal(T.w);
       const sh = this.shoulders[i];
       T.d.copy(T.w).sub(sh);
-      let dist = T.d.length();
-      const reach = L1 + L2 - 0.02;
-      if (dist > reach) { T.d.multiplyScalar(reach / dist); dist = reach; T.w.copy(sh).add(T.d); }
+      // NOTE: T.w (the real wrist) is never moved — if the target is out of
+      // reach we solve the elbow at full extension and let the forearm
+      // stretch to the hand, so the arm can never visibly detach.
+      let dist = Math.min(T.d.length(), L1 + L2 - 0.02);
       T.d.normalize();
       // elbow pole: down and slightly outward (natural driving posture)
       T.pole.set(sgn * 0.45, -1, 0.1).normalize();
