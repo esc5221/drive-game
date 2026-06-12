@@ -1,0 +1,9 @@
+{
+  "appId": "dev.lullu.nordschleife",
+  "appName": "Nordschleife",
+  "webDir": "dist",
+  "backgroundColor": "#04111a",
+  "android": {
+    "allowMixedContent": false
+  }
+}

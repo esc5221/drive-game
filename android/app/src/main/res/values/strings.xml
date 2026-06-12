@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Nordschleife</string>
+    <string name="title_activity_main">Nordschleife</string>
+    <string name="package_name">dev.lullu.nordschleife</string>
+    <string name="custom_url_scheme">dev.lullu.nordschleife</string>
+</resources>

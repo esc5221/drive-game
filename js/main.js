@@ -10,6 +10,8 @@ import { CarVisual } from './car.js';
 import { Input } from './input.js';
 import { TouchInput, isTouchDevice, showStartOverlay } from './touch.js';
 import { TIERS, detectTier, AutoQuality } from './quality.js';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { SURF } from './track.js';
 import { CarAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { Ghost } from './ghost.js';
@@ -108,6 +110,29 @@ input.onKey = code => {
   }
   if (['ArrowUp', 'KeyW'].includes(code)) hud.toggleHelp(false);
 };
+
+// haptics (mobile): curb buzz, rail scrape, gear shifts
+let lastHaptic = 0;
+let lastGear = 1;
+function updateHaptics(now) {
+  if (!TOUCH) return;
+  const onCurb = vehicle.wheels.some(w => w.contact && w.surf === SURF.CURB);
+  const speed = Math.abs(vehicle.speed);
+  try {
+    if (vehicle.gear !== lastGear) {
+      lastGear = vehicle.gear;
+      Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+    }
+    if (now - lastHaptic < 110) return;
+    if (vehicle.scrape > 0.25) {
+      lastHaptic = now;
+      Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {});
+    } else if (onCurb && speed > 8) {
+      lastHaptic = now;
+      Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+    }
+  } catch (e) { /* web fallback may be unavailable */ }
+}
 
 // recover to track: works upside down, off-track, airborne — always
 function recoverToTrack() {
@@ -226,6 +251,7 @@ function loop(now) {
     ghost.update(dtReal, vehicle, hud.lapStart !== null ? hud.now() - hud.lapStart : null);
     raceLine.update(vehicle.trackS, Math.abs(vehicle.speed));
     audio.update(vehicle, dtReal);
+    updateHaptics(now);
   }
 
   carVis.update(vehicle, dtReal);
