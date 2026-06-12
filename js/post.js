@@ -44,23 +44,43 @@ const SpeedShader = {
 };
 
 export class Post {
-  constructor(renderer, scene, camera) {
+  constructor(renderer, scene, camera, opts = { bloom: true, blur: true }) {
+    this.renderer = renderer;
+    this.scene = scene;
+    this.camera = camera;
+    this.enabled = opts.bloom || opts.blur;
+    this.bloom = null;
+    this.speed = null;
+    if (!this.enabled) return;            // low tier: plain forward render
     this.composer = new EffectComposer(renderer);
     this.composer.addPass(new RenderPass(scene, camera));
-    this.bloom = new UnrealBloomPass(
-      new THREE.Vector2(innerWidth, innerHeight), 0.22, 0.55, 0.86);
-    this.composer.addPass(this.bloom);
-    this.speed = new ShaderPass(SpeedShader);
-    this.composer.addPass(this.speed);
+    if (opts.bloom) {
+      this.bloom = new UnrealBloomPass(
+        new THREE.Vector2(innerWidth, innerHeight), 0.22, 0.55, 0.86);
+      this.composer.addPass(this.bloom);
+    }
+    if (opts.blur) {
+      this.speed = new ShaderPass(SpeedShader);
+      this.composer.addPass(this.speed);
+    }
     this.composer.addPass(new OutputPass());
   }
 
   setSpeed(kmh) {
+    if (!this.speed) return;
     // blur fades in from 120 km/h, full at 260
     const t = THREE.MathUtils.clamp((kmh - 120) / 140, 0, 1);
     this.speed.uniforms.uBlur.value = t * t;
   }
 
-  render() { this.composer.render(); }
-  resize(w, h) { this.composer.setSize(w, h); }
+  setCheap() {                            // runtime auto-downgrade
+    if (this.bloom) this.bloom.enabled = false;
+    if (this.speed) this.speed.enabled = false;
+  }
+
+  render() {
+    if (this.enabled) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
+  }
+  resize(w, h) { if (this.enabled) this.composer.setSize(w, h); }
 }

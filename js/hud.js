@@ -160,6 +160,7 @@ export class Hud {
     a.push(vehicle.tc ? 'TC ON' : 'TC OFF');
     a.push(vehicle.abs ? 'ABS ON' : 'ABS OFF');
     a.push(vehicle.auto ? 'AUTO' : 'MANUAL');
+    if (this.fps !== undefined) a.push(Math.round(this.fps) + ' FPS');
     this.el.assists.textContent = a.join('   ');
 
     // speed bar (subtle redundancy with cockpit gauges)

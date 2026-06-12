@@ -195,7 +195,8 @@ function buildRailRibbon(track, d, y0, y1, material) {
 }
 
 // ---------------------------------------------------------------- main
-export function buildWorld(scene, track) {
+export function buildWorld(scene, track, opts = {}) {
+  const treeFrac = opts.trees != null ? opts.trees : 1;
   buildDem(scene, track);
 
   // ---- road
@@ -263,7 +264,7 @@ export function buildWorld(scene, track) {
   addRailPosts(scene, track);
 
   // ---- world dressing
-  addForest(scene, track);
+  addForest(scene, track, treeFrac);
   addSigns(scene, track);
   addGantry(scene, track);
   addBrakingMarkers(scene, track, chunks);
@@ -386,9 +387,9 @@ function addRailPosts(scene, track) {
 }
 
 // two species, near-track dense pass + wide DEM scatter pass
-function addForest(scene, track) {
+function addForest(scene, track, frac = 1) {
   const r = rng(424242);
-  const MAXC = 15000, MAXB = 6000;
+  const MAXC = Math.floor(15000 * frac), MAXB = Math.floor(6000 * frac);
 
   const trunkGeo = new THREE.CylinderGeometry(0.16, 0.26, 3.0, 5);
   const cone1Geo = new THREE.ConeGeometry(2.5, 6.4, 6);

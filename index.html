@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Nürburgring Nordschleife</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #000;
                font-family: 'Helvetica Neue', Arial, sans-serif; }
@@ -47,6 +47,57 @@
     padding: 8px 18px; font-size: 14px; font-weight: 600; letter-spacing: 1px;
     font-family: inherit; }
   #reset-btn:hover { background: rgba(40,60,85,0.85); border-color: #7ec8ff; }
+
+  /* ---------- touch controls ---------- */
+  #touch-ui .tbtn { position: fixed; display: flex; align-items: center; justify-content: center;
+    background: rgba(18,26,38,0.42); border: 1.5px solid rgba(255,255,255,0.30);
+    border-radius: 50%; color: #fff; font-weight: 700; z-index: 20;
+    user-select: none; -webkit-user-select: none; touch-action: none; pointer-events: auto; }
+  #touch-ui .tbtn:active { background: rgba(80,120,170,0.5); }
+  #t-left  { left: calc(18px + env(safe-area-inset-left)); bottom: 28px;
+             width: 92px; height: 92px; font-size: 30px; }
+  #t-right { left: calc(124px + env(safe-area-inset-left)); bottom: 28px;
+             width: 92px; height: 92px; font-size: 30px; }
+  #t-gas   { right: calc(16px + env(safe-area-inset-right)); bottom: 24px;
+             width: 108px; height: 108px; font-size: 18px;
+             background: rgba(26,110,56,0.45); border-color: rgba(120,255,160,0.4); }
+  #t-brake { right: calc(138px + env(safe-area-inset-right)); bottom: 24px;
+             width: 92px; height: 92px; font-size: 16px;
+             background: rgba(130,28,28,0.45); border-color: rgba(255,130,120,0.4); }
+  #t-hb    { right: calc(154px + env(safe-area-inset-right)); bottom: 128px;
+             width: 54px; height: 54px; font-size: 13px; }
+  #t-actions { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 50%;
+               transform: translateX(-50%); display: flex; gap: 10px; z-index: 20;
+               pointer-events: auto; }
+  #t-actions .tbtn { position: relative; width: 44px; height: 44px;
+                     font-size: 15px; border-radius: 12px; }
+  #t-tilt { width: auto !important; padding: 0 12px; }
+
+  #tap-start { position: fixed; inset: 0; z-index: 99; background: rgba(4,9,17,0.94);
+    display: flex; align-items: center; justify-content: center; color: #fff;
+    text-align: center; pointer-events: auto; }
+  #tap-start h2 { font-size: 22px; letter-spacing: 2px; color: #ffd24a; margin-bottom: 8px; }
+  #tap-start p { font-size: 16px; opacity: 0.8; animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+
+  /* ---------- compact HUD on touch devices ---------- */
+  @media (pointer: coarse) {
+    #lap-cur { font-size: 22px; }
+    #lap-delta { font-size: 15px; min-height: 18px; }
+    #lap-last, #lap-best, #lap-sector { font-size: 11px; }
+    #section-name { font-size: 17px; }
+    #section-dist { font-size: 10px; }
+    #section { top: 8px; right: calc(10px + env(safe-area-inset-right)); }
+    #timing { top: 8px; left: calc(10px + env(safe-area-inset-left)); }
+    #minimap-wrap { bottom: 136px; left: calc(12px + env(safe-area-inset-left)); }
+    #minimap { width: 140px; height: 140px; }
+    #bottom-right { bottom: 142px; right: calc(12px + env(safe-area-inset-right)); }
+    #telemetry { width: 168px; height: 104px; }
+    #speedbar { font-size: 14px; }
+    #assists { font-size: 10px; }
+    #reset-btn { display: none; }
+    #help { display: none !important; }
+  }
 </style>
 <!-- three.js resolved locally by Vite (offline-capable for Capacitor) -->
 </head>

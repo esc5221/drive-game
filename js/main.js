@@ -8,6 +8,8 @@ import { Atmosphere } from './atmo.js';
 import { Post } from './post.js';
 import { CarVisual } from './car.js';
 import { Input } from './input.js';
+import { TouchInput, isTouchDevice, showStartOverlay } from './touch.js';
+import { TIERS, detectTier, AutoQuality } from './quality.js';
 import { CarAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { Ghost } from './ghost.js';
@@ -15,27 +17,32 @@ import { RaceLine } from './raceline.js';
 
 const track = new Track(TRACK);
 
+const TOUCH = isTouchDevice();
+const tierName = detectTier();
+const TIER = TIERS[tierName];
+
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.shadowMap.enabled = true;
+renderer.setPixelRatio(Math.min(devicePixelRatio, TIER.pr));
+renderer.shadowMap.enabled = TIER.shadow > 0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const atmo = new Atmosphere(scene, renderer);
-buildWorld(scene, track);
+const atmo = new Atmosphere(scene, renderer, { shadow: TIER.shadow, farScale: TIER.farScale });
+buildWorld(scene, track, { trees: TIER.trees });
 
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.06, 24000);
-const post = new Post(renderer, scene, camera);
+const post = new Post(renderer, scene, camera, TIER);
+const autoQ = new AutoQuality(tierName, renderer, post);
 
 const vehicle = new Vehicle(track);
 const SPAWN_S = 3550;          // just before Hatzenbach — corners right away
 vehicle.reset(SPAWN_S);
 
 const carVis = new CarVisual(scene, renderer);
-const input = new Input();
+const input = TOUCH ? new TouchInput() : new Input();
 const audio = new CarAudio();
 const hud = new Hud(track);
 const ghost = new Ghost(scene, track);
@@ -49,6 +56,10 @@ let paused = false;
 input.onKey = code => {
   audio.start();
   if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
+  if (code.startsWith('__mode:')) {
+    hud.flash(code.endsWith('tilt') ? '틸트 조향 — 폰을 핸들처럼 기울이세요' : '버튼 조향');
+    return;
+  }
   switch (code) {
     case 'KeyR':
       recoverToTrack();
@@ -222,8 +233,13 @@ function loop(now) {
   atmo.follow(vehicle.pos);
   post.setSpeed(camMode === 2 ? 0 : vehicle.speedKmh);
 
+  autoQ.tick(dtReal, fps => hud.flash(`성능 최적화 적용 (${fps} fps)`));
+  hud.fps = hud.fps === undefined ? 60 : hud.fps * 0.95 + (1 / Math.max(dtReal, 1e-3)) * 0.05;
+
   frame++;
-  if (camMode === 0 && frame % 2 === 0) carVis.renderMirror(renderer, scene, vehicle);
+  if (camMode === 0 && TIER.mirror > 0 && frame % TIER.mirror === 0) {
+    carVis.renderMirror(renderer, scene, vehicle);
+  }
   post.render();
 }
 
@@ -235,6 +251,15 @@ addEventListener('resize', () => {
 });
 
 requestAnimationFrame(loop);
+
+if (TOUCH) {
+  hud.toggleHelp(false);
+  showStartOverlay(() => {
+    audio.start();
+    if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
+    hud.flash(input.mode === 'tilt' ? '틸트 조향 — 폰을 핸들처럼' : '버튼 조향 (틸트 버튼으로 전환)');
+  });
+}
 
 window.__vehicle = vehicle;   // debug / test handle
 window.__track = track;

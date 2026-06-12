@@ -25,10 +25,12 @@ const PRESETS = [
 ];
 
 export class Atmosphere {
-  constructor(scene, renderer) {
+  constructor(scene, renderer, opts = {}) {
     this.scene = scene;
     this.renderer = renderer;
     this.idx = 0;
+    this.farScale = opts.farScale || 1;
+    const shadowSize = opts.shadow != null ? opts.shadow : 2048;
 
     this.sky = new Sky();
     this.sky.scale.setScalar(20000);
@@ -43,8 +45,8 @@ export class Atmosphere {
     scene.add(this.sky);
 
     this.sun = new THREE.DirectionalLight(0xffffff, 2.2);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.castShadow = shadowSize > 0;
+    this.sun.shadow.mapSize.set(shadowSize || 512, shadowSize || 512);
     this.sun.shadow.camera.near = 40;
     this.sun.shadow.camera.far = 900;
     const sc = 110;
@@ -87,7 +89,8 @@ export class Atmosphere {
     this.hemi.intensity = p.hemiInt;
     this.hemi.color.set(p.fogColor).lerp(new THREE.Color(0xffffff), 0.4);
 
-    this.scene.fog = new THREE.Fog(p.fogColor, p.fogNear, p.fogFar);
+    this.scene.fog = new THREE.Fog(p.fogColor,
+      p.fogNear * this.farScale, p.fogFar * this.farScale);
     this.renderer.toneMappingExposure = p.exposure;
 
     // environment map from the sky alone (reflections on paint/rails)
