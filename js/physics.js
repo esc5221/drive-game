@@ -86,6 +86,9 @@ export class Vehicle {
     this.gBody = new THREE.Vector3();           // gForce in body frame (HUD)
     this.trackS = 0; this.trackD = 0; this.onTrack = true;
     this.scrape = 0; this.airborne = false;
+    this.suspActivity = 0;            // smoothed sum |comp rate| (cabin vibration)
+    this.landImpact = 0;              // spike on touchdown after airtime
+    this._airTime = 0;
     this.distAccum = 0; this._prevS = 0;
     this.slipFront = 0; this.slipRear = 0;
 
@@ -239,6 +242,7 @@ export class Vehicle {
       // clamp the damper input: a surface kink crossed at speed must read as
       // a bump, not as a 20 m/s compression spike that launches the car
       const compRate = THREE.MathUtils.clamp((w.comp - w.prevComp) / dt, -4, 4);
+      w.rate = compRate;
 
       // spring + bottom-out + damper + ARB
       let fSus = w.k * Math.max(0, w.comp);
@@ -315,6 +319,20 @@ export class Vehicle {
       }
     }
     this.airborne = contactCount === 0;
+
+    // cabin-feel telemetry: suspension business + landing slam
+    let act = 0;
+    for (const w of this.wheels) if (w.contact) act += Math.abs(w.rate || 0);
+    this.suspActivity += (act - this.suspActivity) * Math.min(1, dt * 14);
+    if (this.airborne) {
+      this._airTime += dt;
+    } else {
+      if (this._airTime > 0.25) {
+        this.landImpact = Math.min(1, this._airTime * 0.8 + Math.abs(this.vel.y) * 0.07);
+      }
+      this._airTime = 0;
+    }
+    this.landImpact = Math.max(0, this.landImpact - dt * 2.2);
 
     // ---- ABS: directly limit wheel lockup (handled in _spinWheel via flag)
     this._absActive = this.abs && absActive;

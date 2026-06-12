@@ -64,6 +64,24 @@ export class Track {
       this.roll[i] = this.curv[i] > 0 ? mag : -mag;
     }
     this._smooth(this.roll, 13, 2);
+    this.kar = karussell;             // concrete-slab zones (bump character)
+
+    // per-section surface roughness (the Ring is not uniformly smooth)
+    const ROUGH = {
+      'Döttinger Höhe': 0.5, 'Antoniusbuche': 0.6, 'Tiergarten': 0.7,
+      'Kesselchen': 1.25, 'Bergwerk': 1.2, 'Brünnchen': 1.3,
+      'Pflanzgarten': 1.55, 'Sprunghügel': 1.6, 'Stefan-Bellof-S': 1.4,
+      'Wippermann': 1.35, 'Eschbach': 1.25, 'Hatzenbach': 1.2,
+    };
+    this.rough = new Float32Array(n).fill(1);
+    for (let si = 0; si < data.segments.length; si++) {
+      const f = ROUGH[data.segments[si].name];
+      if (f == null) continue;
+      const s0 = data.segments[si].s;
+      const s1 = si + 1 < data.segments.length ? data.segments[si + 1].s : this.total;
+      for (let s = s0; s < s1; s += this.step) this.rough[Math.floor(s / this.step) % n] = f;
+    }
+    this._smooth(this.rough, 41, 1);
 
     // curb zones: dilated high-curvature regions
     this.curb = new Uint8Array(n);
@@ -178,13 +196,40 @@ export class Track {
     const nl = Math.hypot(nx, ny, nz) || 1;
 
     out = out || {};
-    out.s = ((bi + bt) * this.step) % this.total;
+    const sOut = ((bi + bt) * this.step) % this.total;
+    y += this.bumpAt(sOut, d, surf, bi);
+    out.s = sOut;
     out.d = d; out.y = y;
     out.nx = nx / nl; out.ny = ny / nl; out.nz = nz / nl;
     out.tx = tx; out.ty = ty; out.tz = tz;
     out.rx = rx; out.rz = rz;
     out.surf = surf; out.i = bi; out.roll = roll;
     return out;
+  }
+
+  // procedural road-surface micro displacement (felt by the suspension).
+  // Deterministic by position; left/right wheels see different phases via d.
+  // Amplitudes are kept small (<=25mm) and wavelengths >=0.6m so the damper
+  // reads them as bumps, never as launch-grade steps.
+  bumpAt(s, d, surf, i) {
+    if (surf === SURF.CURB) {
+      // sawtooth-ish curb ripple, 0.6m pitch
+      const p = Math.sin(s * 10.47);
+      return 0.015 * Math.max(0, p) * p;
+    }
+    if (surf === SURF.GRASS) {
+      return Math.sin(s * 5.1 + d * 3.3) * 0.013 + Math.sin(s * 1.37 + d) * 0.009;
+    }
+    // asphalt: layered waviness scaled by section roughness
+    const r = this.rough[i];
+    let h = (Math.sin(s * 1.7 + d * 2.1) * Math.sin(s * 0.41 + 1.3) * 0.0065 +
+             Math.sin(s * 4.3 + d * 0.8) * 0.0035) * r;
+    if (this.kar[i]) {
+      // Karussell concrete slab joints every ~4m: dug-dug-dug
+      const p = Math.max(0, Math.sin(s * 1.5708));
+      h += p * p * p * 0.014;
+    }
+    return h;
   }
 
   // centerline pose at arc length s

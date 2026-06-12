@@ -172,8 +172,10 @@ export class Hud {
       if (this._msgTimer <= 0) this.el.msg.style.opacity = 0;
     }
 
-    this._drawMinimap(vehicle);
-    this._drawTelemetry(vehicle);
+    // canvas widgets are throttled — full redraws every frame hurt mobile CPU
+    this._frame = (this._frame || 0) + 1;
+    if (this._frame % 3 === 0) this._drawMinimap(vehicle);
+    if (this._frame % 2 === 0) this._drawTelemetry(vehicle);
   }
 
   // sector display: purple = all-time best, green = close, white = slower

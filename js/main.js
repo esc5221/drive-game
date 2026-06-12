@@ -43,7 +43,9 @@ buildWorld(scene, track, { trees: TIER.trees, aniso: TIER.aniso });
 
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.06, 24000);
 const post = new Post(renderer, scene, camera, TIER);
-const autoQ = new AutoQuality(tierName, renderer, post);
+const autoQ = new AutoQuality(tierName, renderer, post, [
+  { label: '미러 OFF', run: () => { TIER.mirror = 0; } },
+]);
 
 const SPAWN_S = 3550;          // just before Hatzenbach — corners right away
 let carId = savedCarId();
@@ -102,6 +104,7 @@ input.onKey = code => {
       break;
     case 'KeyN':
       hud.flash(atmo.cycle());
+      applyNight();
       break;
     case 'KeyG':
       ghost.enabled = !ghost.enabled;
@@ -118,6 +121,12 @@ input.onKey = code => {
   if (['ArrowUp', 'KeyW'].includes(code)) hud.toggleHelp(false);
 };
 
+// night state propagates to headlights and AI lamps
+function applyNight() {
+  carVis.setHeadlights(atmo.isNight);
+  traffic.setNight(atmo.isNight);
+}
+
 // ---- car switching (rebuild vehicle + visuals at the same track position)
 function setCar(id) {
   if (!CARS[id] || id === carId) return;
@@ -129,6 +138,7 @@ function setCar(id) {
   vehicle.reset(s);
   carVis = new CarVisual(scene, renderer, CARS[id]);
   carVis.setCameraMode(camMode);
+  carVis.setHeadlights(atmo.isNight);
   lastGear = 1;
   window.__vehicle = vehicle;
   hud.invalidateLap();
@@ -149,7 +159,7 @@ const settings = new SettingsPanel({
   setLineMode: m => { raceLine.setMode(m); },
   setCam: i => { camMode = i; carVis.setCameraMode(i); },
   setCtrl: m => { if (TOUCH) input.setMode(m); },
-  setPreset: i => atmo.apply(i),
+  setPreset: i => { atmo.apply(i); applyNight(); },
   setTier: name => {
     if (name) localStorage.setItem('ns-tier', name);
     else localStorage.removeItem('ns-tier');
@@ -185,7 +195,7 @@ function updateHaptics(now) {
       lastGear = vehicle.gear;
       Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
     }
-    if (traffic.hit > 0.7) {
+    if (traffic.hit > 0.7 || vehicle.landImpact > 0.55) {
       lastHaptic = now;
       Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {});
       return;
@@ -275,10 +285,12 @@ function updateCamera(dtVis) {
     headOffset.copy(eyeLocal).add(headLean);
     headPos.copy(headOffset).applyQuaternion(q).add(vehicle.pos);
     camera.position.copy(headPos);
-    // ABS pedal shudder -> subtle cabin buzz
-    if (vehicle._absActive && vehicle.ctrl.brake > 0.3) {
-      camera.position.y += (Math.random() - 0.5) * 0.006;
-    }
+    // cabin vibration: suspension activity + speed buzz + ABS shudder + landing slam
+    const v2 = vehicle.speed * vehicle.speed;
+    let vib = Math.min(0.010, vehicle.suspActivity * 0.0011 + v2 * 1.6e-6);
+    if (vehicle._absActive && vehicle.ctrl.brake > 0.3) vib += 0.003;
+    camera.position.y += (Math.random() - 0.5) * vib + vehicle.landImpact * -0.035;
+    camera.position.x += (Math.random() - 0.5) * vib * 0.6;
 
     // look slightly into the corner + small pitch with acceleration
     lookEuler.set(
@@ -319,6 +331,7 @@ function loop(now) {
     raceLine.update(vehicle.trackS, Math.abs(vehicle.speed));
     traffic.update(dtReal, vehicle);
     audio.update(vehicle, dtReal);
+    audio.updateTraffic(traffic.cars, vehicle, dtReal);
     updateHaptics(now);
   }
 
@@ -358,3 +371,5 @@ if (TOUCH) {
 window.__vehicle = vehicle;   // debug / test handle
 window.__track = track;
 window.__traffic = traffic;
+window.__renderer = renderer;
+window.__audio = audio;

@@ -71,6 +71,23 @@ export class CarVisual {
 
     this.eyeLocal = new THREE.Vector3(-0.37, 0.82, -0.24);
     this.mode = 0;
+
+    // headlights (night): two spots casting a pool down the road
+    this.headlights = [];
+    for (const sgn of [-1, 1]) {
+      const spot = new THREE.SpotLight(0xfff0d0, 0, 170, 0.46, 0.55, 1.5);
+      spot.position.set(sgn * 0.62, 0.05, -2.0);
+      spot.target.position.set(sgn * 1.4, -1.6, -42);
+      spot.visible = false;
+      this.root.add(spot, spot.target);
+      this.headlights.push(spot);
+    }
+    this._headlightMat = null;          // set in _buildExterior
+  }
+
+  setHeadlights(on) {
+    for (const s of this.headlights) { s.visible = on; s.intensity = on ? 380 : 0; }
+    if (this._headlightMat) this._headlightMat.emissiveIntensity = on ? 3.2 : 0.5;
   }
 
   dispose() {
@@ -136,6 +153,7 @@ export class CarVisual {
     const lightMat = new THREE.MeshStandardMaterial({
       color: 0xdddddd, emissive: 0xb0c4d8, emissiveIntensity: 0.5, roughness: 0.3,
     });
+    this._headlightMat = lightMat;
     const tailMat = new THREE.MeshStandardMaterial({
       color: 0x55060a, emissive: 0x990a10, emissiveIntensity: 0.7, roughness: 0.3,
     });

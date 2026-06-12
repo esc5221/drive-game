@@ -24,7 +24,7 @@ export function detectTier() {
 
 // steps down one knob at a time until FPS recovers
 export class AutoQuality {
-  constructor(tierName, renderer, post) {
+  constructor(tierName, renderer, post, extraSteps = []) {
     this.renderer = renderer;
     this.post = post;
     this._frames = 0;
@@ -35,6 +35,7 @@ export class AutoQuality {
       { label: '해상도 1.5x', run: () => this._setPr(1.5) },
       { label: '블룸/블러 OFF', run: () => post.setCheap() },
       { label: '해상도 1.0x', run: () => this._setPr(1.0) },
+      ...extraSteps,
     ];
   }
   _setPr(pr) {

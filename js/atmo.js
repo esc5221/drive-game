@@ -22,6 +22,13 @@ const PRESETS = [
     sunColor: 0xffb070, sunInt: 2.5, hemiInt: 0.62,
     fogColor: 0xd6b48e, fogNear: 280, fogFar: 1700, exposure: 0.62, skyGain: 0.65,
   },
+  {
+    name: '밤 (Night)',
+    elev: -14, azim: 0, turbidity: 2, rayleigh: 0.5, mieG: 0.7, mieCoeff: 0.002,
+    sunColor: 0x93a8cc, sunInt: 0.16, hemiInt: 0.06,
+    fogColor: 0x05080f, fogNear: 70, fogFar: 540, exposure: 0.85, skyGain: 0.05,
+    night: true, moonElev: 42, moonAzim: 305,
+  },
 ];
 
 export class Atmosphere {
@@ -70,6 +77,8 @@ export class Atmosphere {
     return PRESETS[this.idx].name;
   }
 
+  get presetCount() { return PRESETS.length; }
+
   apply(i) {
     this.idx = i;
     const p = PRESETS[i];
@@ -83,6 +92,12 @@ export class Atmosphere {
     const theta = THREE.MathUtils.degToRad(p.azim);
     this.sunDir.setFromSphericalCoords(1, phi, theta);
     u.sunPosition.value.copy(this.sunDir);
+    this.isNight = !!p.night;
+    if (p.night) {
+      // sky sun sits below the horizon, but the LIGHT comes from the moon
+      this.sunDir.setFromSphericalCoords(1,
+        THREE.MathUtils.degToRad(90 - p.moonElev), THREE.MathUtils.degToRad(p.moonAzim));
+    }
 
     this.sun.color.set(p.sunColor);
     this.sun.intensity = p.sunInt;

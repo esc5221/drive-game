@@ -97,6 +97,7 @@ export class SettingsPanel {
       ['정오', () => this.api.setPreset(0)],
       ['아침 안개', () => this.api.setPreset(1)],
       ['석양', () => this.api.setPreset(2)],
+      ['밤', () => this.api.setPreset(3)],
     ])));
 
     card.appendChild(ROW('그래픽 (변경 시 재시작)', group('tier', [

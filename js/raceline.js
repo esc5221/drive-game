@@ -125,31 +125,66 @@ export class RaceLine {
     return ['끔', '브레이크 가이드', '전체 라인'][this.mode];
   }
 
-  // recolor relative to the car every frame (full rewrite — 25k floats, cheap)
+  _baseColorAt(i) {
+    if (this.mode === 1) return [0, 0, 0];      // brake-only: invisible (additive)
+    return [COL_BASE[0] * 0.5, COL_BASE[1] * 0.5, COL_BASE[2] * 0.5];
+  }
+
+  _paintBaseAll() {
+    const n = this.track.n, c = this.colors;
+    for (let i = 0; i < n; i++) {
+      const [r, g, b] = this._baseColorAt(i);
+      const o = i * 6;
+      c[o] = r; c[o + 1] = g; c[o + 2] = b;
+      c[o + 3] = r; c[o + 4] = g; c[o + 5] = b;
+    }
+    if (this.colorAttr.clearUpdateRanges) this.colorAttr.clearUpdateRanges();
+    this.colorAttr.needsUpdate = true;
+    this._prevStart = -1;
+  }
+
+  // windowed recolor: only ~300 points around the car are touched and only
+  // those bytes are re-uploaded (the 20km full-buffer rewrite hurt mobile)
   update(carS, carSpeed) {
     if (!this.mesh.visible) return;
+    if (this._lastMode !== this.mode) { this._lastMode = this.mode; this._paintBaseAll(); return; }
     const brakeOnly = this.mode === 1;
     const n = this.track.n, step = this.track.step;
     const i0 = Math.floor(carS / step) % n;
     const c = this.colors;
-    const AHEAD = 1400, BEHIND = 60;
-    for (let i = 0; i < n; i++) {
-      let dist = ((i - i0 + n) % n) * step;
-      let col = COL_BASE, fade = 1;
-      if (dist <= AHEAD) {
+    const BEH = 12, AHD = 281, LEN = BEH + AHD + 1;
+    const start = ((i0 - BEH) % n + n) % n;
+    const ranges = [];
+
+    // restore the previous window to base where it no longer overlaps
+    if (this._prevStart >= 0 && this._prevStart !== start) {
+      for (let k = 0; k < LEN; k++) {
+        const i = (this._prevStart + k) % n;
+        const rel = ((i - start) % n + n) % n;
+        if (rel < LEN) continue;                  // still inside the new window
+        const [r, g, b] = this._baseColorAt(i);
+        const o = i * 6;
+        c[o] = r; c[o + 1] = g; c[o + 2] = b;
+        c[o + 3] = r; c[o + 4] = g; c[o + 5] = b;
+      }
+      ranges.push([this._prevStart, LEN]);
+    }
+
+    for (let k = 0; k < LEN; k++) {
+      const i = (start + k) % n;
+      const dist = (((i - i0) % n + n) % n) * step;
+      let col = COL_BASE, fade = 0.4;             // behind-car trail dim
+      if (dist <= AHD * step) {
         const va = this.vAllowed[i];
         if (carSpeed <= va + 0.5) col = COL_GREEN;
         else {
           const req = (carSpeed * carSpeed - va * va) / (2 * Math.max(dist, 2));
           col = req > 5.8 ? COL_RED : req > 2.3 ? COL_YELLOW : COL_GREEN;
         }
-        fade = 1 - 0.75 * (dist / AHEAD);
-      } else if (((i0 - i + n) % n) * step <= BEHIND) {
-        fade = 0.4;
+        fade = 1 - 0.75 * (dist / (AHD * step));
       }
       let r, g, b;
       if (brakeOnly) {
-        // only braking zones (red/yellow) are drawn; everything else is black
         const isWarn = col === COL_RED || col === COL_YELLOW;
         r = isWarn ? col[0] * fade : 0;
         g = isWarn ? col[1] * fade : 0;
@@ -159,9 +194,22 @@ export class RaceLine {
         g = col[1] * fade + COL_BASE[1] * (1 - fade) * 0.5;
         b = col[2] * fade + COL_BASE[2] * (1 - fade) * 0.5;
       }
-      const o = i * 2 * 3;
+      const o = i * 6;
       c[o] = r; c[o + 1] = g; c[o + 2] = b;
       c[o + 3] = r; c[o + 4] = g; c[o + 5] = b;
+    }
+    ranges.push([start, LEN]);
+    this._prevStart = start;
+
+    if (this.colorAttr.clearUpdateRanges) {
+      this.colorAttr.clearUpdateRanges();
+      for (const [s0, len] of ranges) {
+        if (s0 + len <= n) this.colorAttr.addUpdateRange(s0 * 6, len * 6);
+        else {                                    // wraps the loop seam
+          this.colorAttr.addUpdateRange(s0 * 6, (n - s0) * 6);
+          this.colorAttr.addUpdateRange(0, (s0 + len - n) * 6);
+        }
+      }
     }
     this.colorAttr.needsUpdate = true;
   }

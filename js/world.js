@@ -408,31 +408,31 @@ function addRailPosts(scene, track) {
   scene.add(inst);
 }
 
-// two species, near-track dense pass + wide DEM scatter pass
+// Forest with CHUNKED instancing: one InstancedMesh per ~1km grid cell so
+// the frustum can actually cull it. A single 20km InstancedMesh renders all
+// ~1M triangles every frame regardless of view — the main mobile frame killer.
 function addForest(scene, track, frac = 1) {
   const r = rng(424242);
   const MAXC = Math.floor(24000 * frac), MAXB = Math.floor(8500 * frac);
+  const MAXU = Math.floor(5200 * frac);
 
   const trunkGeo = new THREE.CylinderGeometry(0.16, 0.26, 3.0, 5);
   const cone1Geo = new THREE.ConeGeometry(2.5, 6.4, 6);
   const cone2Geo = new THREE.ConeGeometry(1.7, 4.4, 6);
   const blobGeo = new THREE.IcosahedronGeometry(2.6, 0);
+  const bushGeo = new THREE.IcosahedronGeometry(1.0, 0);
   const trunkMat = new THREE.MeshLambertMaterial({ color: 0x4e3d2c });
   const leafMat = new THREE.MeshLambertMaterial({ color: 0x2c4a28 });
   const leafMat2 = new THREE.MeshLambertMaterial({ color: 0x35592f });
   const blobMat = new THREE.MeshLambertMaterial({ color: 0x3f6231 });
+  const bushMat = new THREE.MeshLambertMaterial({ color: 0x2f4d28 });
 
-  const trunk = new THREE.InstancedMesh(trunkGeo, trunkMat, MAXC + MAXB);
-  const cone1 = new THREE.InstancedMesh(cone1Geo, leafMat, MAXC);
-  const cone2 = new THREE.InstancedMesh(cone2Geo, leafMat2, MAXC);
-  const blob = new THREE.InstancedMesh(blobGeo, blobMat, MAXB);
-  cone1.castShadow = true;
-  blob.castShadow = true;
-
-  const m4 = new THREE.Matrix4(), v = new THREE.Vector3();
-  let kc = 0, kb = 0, kt = 0;
-
+  // ---- collect placements first
+  const conifers = [], broads = [], bushes = [];
+  const v = new THREE.Vector3();
+  let kc = 0, kb = 0;
   const place = (x, z) => {
+    if (kc >= MAXC && kb >= MAXB) return;
     const ni = track.nearestIndex(x, z);
     if (ni >= 0) {
       const dx = track.px[ni] - x, dz = track.pz[ni] - z;
@@ -440,27 +440,10 @@ function addForest(scene, track, frac = 1) {
     }
     const gy = worldGround(track, x, z);
     const s = 0.95 + r() * 1.35;
-    const broad = r() < 0.28;
-    if (broad && kb < MAXB) {
-      m4.makeScale(s, s * (0.9 + r() * 0.3), s);
-      m4.setPosition(x, gy + 1.5 * s, z);
-      trunk.setMatrixAt(kt++, m4);
-      m4.makeScale(s, s * (0.85 + r() * 0.3), s);
-      m4.setPosition(x, gy + 4.4 * s, z);
-      blob.setMatrixAt(kb++, m4);
-    } else if (kc < MAXC) {
-      m4.makeScale(s, s, s);
-      m4.setPosition(x, gy + 1.5 * s, z);
-      trunk.setMatrixAt(kt++, m4);
-      m4.setPosition(x, gy + 5.0 * s, z);
-      cone1.setMatrixAt(kc, m4);
-      m4.setPosition(x, gy + 7.9 * s, z);
-      cone2.setMatrixAt(kc, m4);
-      kc++;
-    }
+    if (r() < 0.28 && kb < MAXB) { broads.push([x, gy, z, s]); kb++; }
+    else if (kc < MAXC) { conifers.push([x, gy, z, s]); kc++; }
   };
-
-  // pass 1: tight tree wall right behind the rails (the Eifel green tunnel)
+  // tight tree wall right behind the rails (the Eifel green tunnel)
   for (let i = 0; i < track.n; i += 1) {
     for (const sgn of [-1, 1]) {
       if (r() < 0.25) continue;
@@ -469,7 +452,7 @@ function addForest(scene, track, frac = 1) {
       place(v.x + (r() - 0.5) * 4, v.z + (r() - 0.5) * 4);
     }
   }
-  // pass 1b: mid-distance forest mass
+  // mid-distance forest mass
   for (let i = 0; i < track.n; i += 1) {
     for (const sgn of [-1, 1]) {
       if (r() < 0.35) continue;
@@ -478,7 +461,7 @@ function addForest(scene, track, frac = 1) {
       place(v.x + (r() - 0.5) * 8, v.z + (r() - 0.5) * 8);
     }
   }
-  // pass 2: wide scatter over the DEM (forest masses on the hills)
+  // wide DEM scatter
   let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
   for (let i = 0; i < track.n; i++) {
     minX = Math.min(minX, track.px[i]); maxX = Math.max(maxX, track.px[i]);
@@ -489,15 +472,7 @@ function addForest(scene, track, frac = 1) {
     const z = minZ - 600 + r() * (maxZ - minZ + 1200);
     place(x, z);
   }
-
-  trunk.count = kt; cone1.count = kc; cone2.count = kc; blob.count = kb;
-  scene.add(trunk, cone1, cone2, blob);
-
-  // undergrowth: low bushes hugging the guardrails
-  const MAXU = Math.floor(5200 * frac);
-  const bushGeo = new THREE.IcosahedronGeometry(1.0, 0);
-  const bushMat = new THREE.MeshLambertMaterial({ color: 0x2f4d28 });
-  const bush = new THREE.InstancedMesh(bushGeo, bushMat, MAXU);
+  // undergrowth bushes hugging the guardrails
   let ku = 0;
   for (let i = 0; i < track.n && ku < MAXU; i += 2) {
     for (const sgn of [-1, 1]) {
@@ -505,15 +480,65 @@ function addForest(scene, track, frac = 1) {
       const d = sgn * (RAIL_D + 1.2 + r() * 4.5);
       track.edge(i, d, 0, v);
       const gy = worldGround(track, v.x, v.z);
-      const s = 0.6 + r() * 1.1;
-      m4.makeScale(s * (1 + r() * 0.6), s * 0.62, s * (1 + r() * 0.6));
-      m4.setPosition(v.x + (r() - 0.5) * 2, gy + 0.3 * s, v.z + (r() - 0.5) * 2);
-      bush.setMatrixAt(ku++, m4);
-      if (ku >= MAXU) break;
+      bushes.push([v.x + (r() - 0.5) * 2, gy, v.z + (r() - 0.5) * 2, 0.6 + r() * 1.1, r()]);
+      if (++ku >= MAXU) break;
     }
   }
-  bush.count = ku;
-  scene.add(bush);
+
+  // ---- bucket into 1km grid cells, build per-cell instanced meshes
+  const CELL = 1000;
+  const cells = new Map();
+  const bucket = (arr, kind) => {
+    for (const p of arr) {
+      const key = Math.floor(p[0] / CELL) + '|' + Math.floor(p[2] / CELL);
+      let c = cells.get(key);
+      if (!c) cells.set(key, c = { con: [], broad: [], bush: [] });
+      c[kind].push(p);
+    }
+  };
+  bucket(conifers, 'con'); bucket(broads, 'broad'); bucket(bushes, 'bush');
+
+  const m4 = new THREE.Matrix4();
+  // instanced mesh with a hand-set bounding sphere covering its instances
+  const makeInst = (geo, mat, items, fill, height, castShadow) => {
+    if (!items.length) return null;
+    const g = geo.clone();
+    const inst = new THREE.InstancedMesh(g, mat, items.length);
+    let cx = 0, cy = 0, cz = 0;
+    for (const p of items) { cx += p[0]; cy += p[1]; cz += p[2]; }
+    cx /= items.length; cy /= items.length; cz /= items.length;
+    let rad = 0;
+    for (let i = 0; i < items.length; i++) {
+      fill(m4, items[i]);
+      inst.setMatrixAt(i, m4);
+      const dx = items[i][0] - cx, dy = items[i][1] - cy, dz = items[i][2] - cz;
+      rad = Math.max(rad, Math.hypot(dx, dy, dz));
+    }
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, cy, cz), rad + height);
+    inst.castShadow = !!castShadow;
+    scene.add(inst);
+    return inst;
+  };
+
+  for (const c of cells.values()) {
+    makeInst(trunkGeo, trunkMat, c.con.concat(c.broad), (m, p) => {
+      m.makeScale(p[3], p[3], p[3]); m.setPosition(p[0], p[1] + 1.5 * p[3], p[2]);
+    }, 6, false);
+    makeInst(cone1Geo, leafMat, c.con, (m, p) => {
+      m.makeScale(p[3], p[3], p[3]); m.setPosition(p[0], p[1] + 5.0 * p[3], p[2]);
+    }, 16, true);
+    makeInst(cone2Geo, leafMat2, c.con, (m, p) => {
+      m.makeScale(p[3], p[3], p[3]); m.setPosition(p[0], p[1] + 7.9 * p[3], p[2]);
+    }, 22, false);
+    makeInst(blobGeo, blobMat, c.broad, (m, p) => {
+      m.makeScale(p[3], p[3] * 0.95, p[3]); m.setPosition(p[0], p[1] + 4.4 * p[3], p[2]);
+    }, 14, true);
+    makeInst(bushGeo, bushMat, c.bush, (m, p) => {
+      const s = p[3];
+      m.makeScale(s * (1 + p[4] * 0.6), s * 0.62, s * (1 + p[4] * 0.6));
+      m.setPosition(p[0], p[1] + 0.3 * s, p[2]);
+    }, 3, false);
+  }
 }
 
 function addSigns(scene, track) {

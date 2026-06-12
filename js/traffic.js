@@ -85,6 +85,18 @@ export class Traffic {
 
   _rnd() { return (this._seed = (this._seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; }
 
+  setNight(on) {
+    this.night = on;
+    for (const c of this.cars) {
+      c.vis.group.traverse(o => {
+        if (o.material && o.material.emissive && o.material.color.r > 0.7 &&
+            o.material.color.g > 0.7) {
+          o.material.emissiveIntensity = on ? 2.6 : 0.3;     // headlights glow
+        }
+      });
+    }
+  }
+
   setDensity(n) {
     this.count = n;
     localStorage.setItem('ns-traffic', String(n));
@@ -221,9 +233,10 @@ export class Traffic {
       tmp.m.makeBasis(tmp.right, tmp.up, tmp.back);
       c.vis.group.quaternion.setFromRotationMatrix(tmp.m);
 
-      // dressing: brake lights + wheel spin
-      c.vis.brakeMat.emissiveIntensity = c.braking ? 2.2 : 0.15;
+      // dressing: brake lights + wheel spin + gentle body bob over the road
+      c.vis.brakeMat.emissiveIntensity = c.braking ? 2.2 : (this.night ? 0.8 : 0.15);
       for (const w of c.vis.wheels) w.rotation.x -= (c.v / 0.32) * dt;
+      c.vis.group.position.y += Math.sin(c.s * 2.3 + c.d * 5) * 0.012;
 
       // --- player collision (track-space OBB approximation) ---
       c.cool = Math.max(0, c.cool - dt);
