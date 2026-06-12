@@ -357,32 +357,99 @@ export class CarVisual {
     marker.position.set(0, 0.172, 0);
     this.wheelSpin.add(marker);
 
-    // gloved hands at 9 & 3 + forearms (rotate with the rim)
-    const glove = new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.85 });
-    const sleeve = new THREE.MeshStandardMaterial({ color: 0x23272e, roughness: 0.9 });
+    // ---- hands: four articulated fingers + thumb wrapping the rim tube.
+    // Built in a canonical frame (rim tube along +y, radial-out +x,
+    // driver side +z), then mirrored onto the 9 & 3 grip points.
+    // The hands ride wheelSpin (correct grip kinematics); the arms are
+    // solved separately with 2-bone IK from fixed shoulder anchors.
+    const glove = new THREE.MeshStandardMaterial({ color: 0x4a515c, roughness: 0.88 });
+    const gloveDark = new THREE.MeshStandardMaterial({ color: 0x343a43, roughness: 0.9 });
+    const knuckleMat = new THREE.MeshStandardMaterial({ color: V.accent, roughness: 0.6 });
+    this.wristAnchors = [];
+    const buildHand = () => {
+      const h = new THREE.Group();
+      // smooth back-of-hand mass (ellipsoid) hugging the outside of the rim
+      const back = new THREE.Mesh(new THREE.SphereGeometry(0.034, 12, 10), glove);
+      back.position.set(0.040, 0.002, 0.010);
+      back.scale.set(0.80, 1.55, 1.05);
+      h.add(back);
+      // racing-glove knuckle accent strip
+      const knuckle = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.085, 0.022), knuckleMat);
+      knuckle.position.set(0.062, 0.006, 0.002);
+      knuckle.rotation.y = 0.10;
+      h.add(knuckle);
+      const heel = new THREE.Mesh(new THREE.SphereGeometry(0.028, 10, 8), glove);
+      heel.position.set(0.040, -0.060, 0.018);
+      heel.scale.set(0.85, 1.0, 0.95);
+      h.add(heel);
+      // four fingers: short arcs over the FAR side of the rim only — from the
+      // driver seat you see knuckles + fingertips peeking past the tube
+      for (let f = 0; f < 4; f++) {
+        const r = 0.0290 - f * 0.0010;
+        const arc = 2.35;
+        const geo = new THREE.TorusGeometry(r, 0.0105, 7, 10, arc);
+        geo.rotateZ(0.30);
+        geo.rotateX(-Math.PI / 2);               // wrap from knuckles to far side
+        const y = 0.043 - f * 0.0215;
+        const finger = new THREE.Mesh(geo, glove);
+        finger.position.set(0.006, y, 0);
+        h.add(finger);
+        // rounded fingertip closing the open arc end
+        const endA = 0.30 + arc;
+        const tip = new THREE.Mesh(new THREE.SphereGeometry(0.0105, 8, 6), glove);
+        tip.position.set(0.006 + Math.cos(endA) * r, y, -Math.sin(endA) * r);
+        h.add(tip);
+      }
+      // thumb: lies ALONG the rim on the near side, pointing up the wheel
+      const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.0115, 0.055, 4, 8), gloveDark);
+      thumb.position.set(-0.014, -0.018, 0.028);
+      thumb.rotation.z = -0.18;
+      thumb.rotation.x = 0.25;
+      h.add(thumb);
+      // wrist: smooth bridge from the heel toward the forearm
+      const wrist = new THREE.Mesh(new THREE.CapsuleGeometry(0.026, 0.055, 4, 9), gloveDark);
+      wrist.position.set(0.052, -0.052, 0.034);
+      wrist.rotation.z = 0.55;
+      wrist.rotation.x = -0.65;
+      h.add(wrist);
+      // IK target: where the forearm meets the hand
+      const anchor = new THREE.Object3D();
+      anchor.position.set(0.062, -0.055, 0.058);
+      h.add(anchor);
+      return { h, anchor };
+    };
     for (const sgn of [-1, 1]) {
-      const hand = new THREE.Group();
-      // fingers: a partial torus wrapping the rim tube
-      const fingers = new THREE.Mesh(new THREE.TorusGeometry(0.030, 0.017, 8, 10, 3.6), glove);
-      fingers.rotation.y = Math.PI / 2;
-      fingers.rotation.x = Math.PI * 0.1;
-      hand.add(fingers);
-      const palm = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.095, 0.052), glove);
-      palm.position.set(sgn * 0.012, -0.01, 0.035);
-      hand.add(palm);
-      const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.05, 0.02), glove);
-      thumb.position.set(-sgn * 0.022, 0.028, 0.012);
-      thumb.rotation.z = sgn * 0.5;
-      hand.add(thumb);
-      const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.046, 0.30, 10), sleeve);
-      forearm.position.set(sgn * 0.045, -0.13, 0.13);
-      forearm.rotation.x = -0.85;
-      forearm.rotation.z = sgn * 0.28;
-      hand.add(forearm);
-      hand.position.set(sgn * 0.175, 0, 0.012);
-      this.wheelSpin.add(hand);
+      const { h, anchor } = buildHand();
+      // grips slightly above 9-and-3 (more visible from the driver's eye)
+      const lift = 0.32;                                        // ~18 deg up
+      const ang = sgn === -1 ? Math.PI - lift : lift;
+      h.rotation.z = ang;
+      h.position.set(Math.cos(ang) * 0.175, Math.sin(ang) * 0.175, 0.014);
+      this.wheelSpin.add(h);
+      this.wristAnchors.push(anchor);
     }
     this.wheelGroup.add(this.wheelSpin);
+
+    // ---- arms: 2-bone IK (shoulder fixed to the seat, elbow via pole)
+    const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x23272e, roughness: 0.92 });
+    this.arms = [];
+    this.shoulders = [
+      new THREE.Vector3(-0.58, 0.62, 0.02),      // left (driver at x -0.37)
+      new THREE.Vector3(-0.16, 0.62, 0.02),      // right
+    ];
+    this.armLen = [0.31, 0.31];                   // upper, forearm
+    for (let i = 0; i < 2; i++) {
+      const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.043, 0.31, 4, 8), sleeveMat);
+      const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.036, 0.31, 4, 8), sleeveMat);
+      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.044, 10, 8), sleeveMat);
+      cp.add(upper, fore, elbow);
+      this.arms.push({ upper, fore, elbow });
+    }
+    this._ikTmp = {
+      w: new THREE.Vector3(), d: new THREE.Vector3(), perp: new THREE.Vector3(),
+      pole: new THREE.Vector3(), e: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0),
+      q: new THREE.Quaternion(), m: new THREE.Vector3(),
+    };
 
     // paddles
     for (const sgn of [-1, 1]) {
@@ -486,6 +553,49 @@ export class CarVisual {
     this.exterior.visible = mode === 2;
   }
 
+  // place a capsule (axis +y, native length L) between two cockpit-space points
+  _seg(mesh, a, b, baseLen) {
+    const T = this._ikTmp;
+    T.m.copy(a).add(b).multiplyScalar(0.5);
+    mesh.position.copy(T.m);
+    T.d.copy(b).sub(a);
+    const len = T.d.length();
+    mesh.quaternion.setFromUnitVectors(T.up, T.d.normalize());
+    mesh.scale.set(1, Math.max(0.3, len / baseLen), 1);
+  }
+
+  _solveArms() {
+    if (!this.cockpit.visible) return;
+    const T = this._ikTmp;
+    const [L1, L2] = this.armLen;
+    this.root.updateMatrixWorld(true);
+    for (let i = 0; i < 2; i++) {
+      const sgn = i === 0 ? -1 : 1;
+      // wrist target: hand anchor -> cockpit-local
+      T.w.setFromMatrixPosition(this.wristAnchors[i].matrixWorld);
+      this.cockpit.worldToLocal(T.w);
+      const sh = this.shoulders[i];
+      T.d.copy(T.w).sub(sh);
+      let dist = T.d.length();
+      const reach = L1 + L2 - 0.02;
+      if (dist > reach) { T.d.multiplyScalar(reach / dist); dist = reach; T.w.copy(sh).add(T.d); }
+      T.d.normalize();
+      // elbow pole: down and slightly outward (natural driving posture)
+      T.pole.set(sgn * 0.45, -1, 0.1).normalize();
+      T.perp.copy(T.pole).addScaledVector(T.d, -T.pole.dot(T.d));
+      if (T.perp.lengthSq() < 1e-6) T.perp.set(0, -1, 0);
+      T.perp.normalize();
+      const cosA = THREE.MathUtils.clamp(
+        (L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist), -1, 1);
+      const sinA = Math.sqrt(1 - cosA * cosA);
+      T.e.copy(sh).addScaledVector(T.d, cosA * L1).addScaledVector(T.perp, sinA * L1);
+      const arm = this.arms[i];
+      this._seg(arm.upper, sh, T.e, 0.31 + 0.086);
+      arm.elbow.position.copy(T.e);
+      this._seg(arm.fore, T.e, T.w, 0.31 + 0.072);
+    }
+  }
+
   update(vehicle, dtVis) {
     this.root.position.copy(vehicle.pos);
     this.root.quaternion.copy(vehicle.quat);
@@ -494,6 +604,7 @@ export class CarVisual {
     // clamped so the hands never cross over awkwardly
     const realAngle = vehicle.ctrl.steer * vehicle.maxSteerAngle();
     this.wheelSpin.rotation.z = THREE.MathUtils.clamp(-realAngle * 13, -2.6, 2.6);
+    this._solveArms();
 
     const a0 = Math.PI * 200 / 180, a1 = -Math.PI * 20 / 180;
     const rpmF = Math.min(vehicle.rpm / (this.spec.dialMax * 1000), 1);

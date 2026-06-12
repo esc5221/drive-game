@@ -102,11 +102,15 @@ export class SettingsPanel {
     danger.classList.add('danger');
     card.appendChild(ROW('기록', [danger]));
 
-    const resume = btn('계속하기  ▶', () => this.close());
+    const resume = btn('계속하기', () => this.close());
     resume.id = 'set-resume';
     card.appendChild(resume);
 
     el.appendChild(card);
+    // tap outside the card closes the panel
+    el.addEventListener('pointerdown', e => {
+      if (e.target === el) this.close();
+    });
     document.body.appendChild(el);
     this._mark = mark;
   }

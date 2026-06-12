@@ -55,7 +55,7 @@ export class TouchInput {
     // minimal in-game bar: pause/settings + reset only (rest lives in settings)
     const bar = document.createElement('div');
     bar.id = 't-actions';
-    for (const [label, code] of [['⏸', 'KeyP'], ['복구', 'KeyR']]) {
+    for (const [label, code] of [['메뉴', 'KeyP'], ['복구', 'KeyR']]) {
       const b = BTN('t-' + code, label, 'small');
       b.addEventListener('pointerdown', e => {
         e.preventDefault();
