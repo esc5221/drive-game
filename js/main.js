@@ -78,16 +78,16 @@ input.onKey = code => {
       camMode = (camMode + 1) % 3;
       carVis.setCameraMode(camMode);
       break;
-    case 'ShiftLeft': case 'ShiftRight':
+    case 'ShiftLeft': case 'ShiftRight': case 'ArrowUp':
       if (!vehicle.auto) vehicle.shiftUp();
       break;
-    case 'ControlLeft': case 'ControlRight':
+    case 'ControlLeft': case 'ControlRight': case 'ArrowDown':
       if (!vehicle.auto) vehicle.shiftDown();
       break;
     case 'KeyM':
       vehicle.auto = !vehicle.auto;
       if (vehicle.gear < 1) vehicle.gear = 1;
-      hud.flash(vehicle.auto ? 'AUTOMATIC' : 'MANUAL (Shift up / Ctrl down)');
+      hud.flash(vehicle.auto ? 'AUTOMATIC' : 'MANUAL — ↑ 업시프트 / ↓ 다운시프트, W/S 페달');
       break;
     case 'KeyT':
       vehicle.tc = !vehicle.tc;

@@ -44,8 +44,11 @@ export class Input {
     this.steer += Math.abs(d) <= maxStep ? d : Math.sign(d) * maxStep;
     if (Math.abs(this.steer) < 0.001 && target === 0) this.steer = 0;
 
-    const accel = this.down('ArrowUp', 'KeyW');
-    const brake = this.down('ArrowDown', 'KeyS');
+    // manual mode: ↑/↓ become the shifter (handled as discrete keys in main),
+    // so only W/S drive the pedals
+    const manual = !vehicle.auto;
+    const accel = this.down('KeyW') || (!manual && this.down('ArrowUp'));
+    const brake = this.down('KeyS') || (!manual && this.down('ArrowDown'));
     this.throttle = step(this.throttle, accel ? 1 : 0, accel ? 3.5 : 8, dt);
     this.brake = step(this.brake, brake ? 1 : 0, brake ? 5.5 : 10, dt);
     this.handbrake = this.down('Space');
