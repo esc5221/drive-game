@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Nürburgring Nordschleife</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000;
+               font-family: 'Helvetica Neue', Arial, sans-serif; }
+  #app { position: fixed; inset: 0; }
+  .hud { position: fixed; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+         user-select: none; pointer-events: none; }
+
+  #timing { top: 14px; left: 16px; font-variant-numeric: tabular-nums; }
+  #lap-cur { font-size: 30px; font-weight: 700; letter-spacing: 1px; }
+  #lap-last, #lap-best, #lap-sector { font-size: 14px; opacity: 0.85; margin-top: 2px;
+    font-family: 'SF Mono', Menlo, monospace; }
+  #lap-delta { font-size: 20px; font-weight: 700; min-height: 24px;
+    font-family: 'SF Mono', Menlo, monospace; }
+
+  #section { top: 14px; right: 16px; text-align: right; }
+  #section-name { font-size: 26px; font-weight: 700; transition: opacity 0.8s; }
+  #section-dist { font-size: 13px; opacity: 0.7; margin-top: 2px;
+    font-family: 'SF Mono', Menlo, monospace; }
+
+  #minimap-wrap { bottom: 14px; left: 16px; }
+  #minimap { background: rgba(10,14,20,0.55); border-radius: 8px; }
+
+  #bottom-right { bottom: 14px; right: 16px; text-align: right; }
+  #telemetry { background: rgba(10,14,20,0.55); border-radius: 8px; margin-bottom: 6px; }
+  #speedbar { font-size: 20px; font-weight: 600; font-family: 'SF Mono', Menlo, monospace; }
+  #assists { font-size: 12px; opacity: 0.75; margin-top: 4px; letter-spacing: 1px; }
+
+  #center-msg { top: 22%; left: 0; right: 0; text-align: center; font-size: 30px;
+    font-weight: 700; opacity: 0; transition: opacity 0.4s; }
+
+  #help { top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(8,12,18,0.85); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 12px; padding: 22px 30px; font-size: 14px; line-height: 1.85; }
+  #help h1 { font-size: 18px; margin: 0 0 10px; color: #ffd24a; }
+  #help td { padding-right: 18px; }
+  #help .k { color: #7ec8ff; font-family: 'SF Mono', Menlo, monospace; font-weight: 600; }
+
+  #reset-btn { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    pointer-events: auto; cursor: pointer; background: rgba(12,18,26,0.7);
+    color: #fff; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px;
+    padding: 8px 18px; font-size: 14px; font-weight: 600; letter-spacing: 1px;
+    font-family: inherit; }
+  #reset-btn:hover { background: rgba(40,60,85,0.85); border-color: #7ec8ff; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="timing" class="hud">
+  <div id="lap-cur">0:00.000</div>
+  <div id="lap-delta"></div>
+  <div id="lap-last">LAST  --:--.---</div>
+  <div id="lap-best">BEST  --:--.---</div>
+  <div id="lap-sector"></div>
+</div>
+
+<div id="section" class="hud">
+  <div id="section-name"></div>
+  <div id="section-dist"></div>
+</div>
+
+<div id="minimap-wrap" class="hud"><canvas id="minimap" width="230" height="230"></canvas></div>
+
+<div id="bottom-right" class="hud">
+  <canvas id="telemetry" width="210" height="130"></canvas>
+  <div id="speedbar">0 km/h</div>
+  <div id="assists"></div>
+</div>
+
+<div id="center-msg" class="hud"></div>
+
+<button id="reset-btn">트랙 복구 (R)</button>
+
+<div id="help" class="hud">
+  <h1>NÜRBURGRING NORDSCHLEIFE — 20.7 km</h1>
+  <table>
+    <tr><td class="k">↑ / W</td><td>가속</td><td class="k">↓ / S</td><td>브레이크 (정지 시 후진)</td></tr>
+    <tr><td class="k">← → / A D</td><td>조향</td><td class="k">Space</td><td>핸드브레이크</td></tr>
+    <tr><td class="k">M</td><td>자동/수동 변속</td><td class="k">Shift / Ctrl</td><td>기어 업 / 다운 (수동)</td></tr>
+    <tr><td class="k">C</td><td>카메라 (콕핏/후드/체이스)</td><td class="k">R</td><td>트랙 복귀 리셋</td></tr>
+    <tr><td class="k">T</td><td>트랙션 컨트롤</td><td class="k">B</td><td>ABS</td></tr>
+    <tr><td class="k">N</td><td>시간대 (정오/아침안개/석양)</td><td class="k">G</td><td>고스트 랩 표시</td></tr>
+    <tr><td class="k">L</td><td>레이싱 라인 (초록=가속/빨강=브레이크)</td><td class="k"></td><td></td></tr>
+    <tr><td class="k">P</td><td>일시정지</td><td class="k">H</td><td>이 도움말</td></tr>
+  </table>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

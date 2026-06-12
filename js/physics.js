@@ -1,0 +1,451 @@
+// Vehicle physics: rigid body (6DOF) + 4-wheel raycast suspension +
+// combined-slip Pacejka tires + engine/gearbox/diff + aero.
+// Fixed substep integration at 240 Hz.
+import * as THREE from 'three';
+import { SURF, WALL_D } from './track.js';
+
+const G = 9.81;
+export const DT = 1 / 240;
+
+// surface grip
+const MU = { [SURF.ROAD]: 1.22, [SURF.CURB]: 1.10, [SURF.GRASS]: 0.55 };
+
+// engine: 2.0T 4-cyl hot hatch (Elantra N spec) — flat turbo torque plateau,
+// ~280 hp @ 6200, 392 Nm from ~2100 rpm
+const TQ_RPM = [800, 1400, 1800, 2100, 2800, 3600, 4400, 4700, 5200, 5800, 6200, 6600, 6900, 7300];
+const TQ_NM  = [140, 220,  310,  385,  392,  392,  392,  392,  375,  345,  315,  285,  255,  70];
+const IDLE = 850, REDLINE = 6900;
+const GEARS = [3.62, 2.19, 1.52, 1.13, 0.89, 0.72];
+const FINAL = 4.20, DRIVE_EFF = 0.90;
+
+function engineTorque(rpm) {
+  if (rpm <= TQ_RPM[0]) return TQ_NM[0];
+  for (let i = 1; i < TQ_RPM.length; i++) {
+    if (rpm <= TQ_RPM[i]) {
+      const t = (rpm - TQ_RPM[i - 1]) / (TQ_RPM[i] - TQ_RPM[i - 1]);
+      return TQ_NM[i - 1] + t * (TQ_NM[i] - TQ_NM[i - 1]);
+    }
+  }
+  return 0;
+}
+
+// normalized combined-slip curve: peaks at 1.0 when rho == 1
+function tireCurve(rho) {
+  return Math.sin(1.5 * Math.atan(1.73 * rho));
+}
+
+const V = () => new THREE.Vector3();
+
+export class Vehicle {
+  constructor(track) {
+    this.track = track;
+
+    // body — FWD sport sedan, nose-heavy (60:40)
+    this.mass = 1430;
+    this.invMass = 1 / this.mass;
+    this.inertia = new THREE.Vector3(2200, 2550, 580);     // pitch(x), yaw(y), roll(z) in body frame
+    this.pos = V(); this.vel = V();
+    this.quat = new THREE.Quaternion();
+    this.angVel = V();                                      // world frame
+    this.comH = 0.45;                                       // CoM height above ground at rest
+
+    // wheels: FL FR RL RR.  body frame: +x right, +y up, -z forward
+    // CoM placed for 60% front static load (FWD traction + understeer lean)
+    const halfTrackF = 0.80, halfTrackR = 0.81;
+    this.wheels = [
+      { x: -halfTrackF, z: -1.06, front: true },
+      { x: +halfTrackF, z: -1.06, front: true },
+      { x: -halfTrackR, z: +1.59, front: false },
+      { x: +halfTrackR, z: +1.59, front: false },
+    ].map(w => ({
+      ...w,
+      attachY: 0.21,                 // ray origin above CoM
+      restLen: 0.30, radius: 0.33, inertiaW: 1.3,
+      k: w.front ? 68000 : 48000,
+      cBump: w.front ? 5200 : 3700, cReb: w.front ? 8200 : 5900,
+      maxCompress: 0.17,
+      comp: 0, prevComp: 0, contact: false,
+      omega: 0,                       // wheel spin (rad/s)
+      slipRatio: 0, slipAngle: 0, load: 0, surf: SURF.ROAD,
+      // slight rear grip bonus: planted tail, saturates front first (understeer)
+      muScale: w.front ? 0.99 : 1.07,
+      q: {},                          // surface query scratch
+      worldPos: V(),
+      steer: 0, spinAngle: 0,
+    }));
+    this.arbF = 26000; this.arbR = 16000;
+
+    // drivetrain
+    this.gear = 1;                    // 1..6 (0 = neutral handled via clutch), -1 reverse
+    this.rpm = IDLE;
+    this.auto = true;
+    this.shiftTimer = 0; this.shiftCooldown = 0;
+    this.tc = true; this.abs = true;
+    this.tcCut = 0;
+
+    // controls (set externally each frame)
+    this.ctrl = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+
+    // telemetry
+    this.speed = 0; this.gForce = new THREE.Vector3();
+    this.gBody = new THREE.Vector3();           // gForce in body frame (HUD)
+    this.trackS = 0; this.trackD = 0; this.onTrack = true;
+    this.scrape = 0; this.airborne = false;
+    this.distAccum = 0; this._prevS = 0;
+    this.slipFront = 0; this.slipRear = 0;
+
+    this._scratch = { f: V(), p: V(), r: V(), v: V(), t1: V(), t2: V(), t3: V(), q: new THREE.Quaternion() };
+    this._bodyQ = {};
+  }
+
+  reset(s = 0) {
+    const p = this.track.poseAt(s);
+    // align with the FULL 3D tangent (pitch included) — spawning level on a
+    // steep grade buries an axle and the bottom-out springs catapult the car
+    const tan = new THREE.Vector3(p.tx, p.ty, p.tz).normalize();
+    const m = new THREE.Matrix4().lookAt(new THREE.Vector3(0, 0, 0),
+      tan, new THREE.Vector3(0, 1, 0));
+    this.quat.setFromRotationMatrix(m);
+    // height: clear the highest wheel-contact point, not just the center
+    this.pos.set(p.x, p.y, p.z);
+    let maxY = p.y;
+    const wp = new THREE.Vector3();
+    for (const w of this.wheels) {
+      wp.set(w.x, 0, w.z).applyQuaternion(this.quat).add(this.pos);
+      const q = this.track.query(wp.x, wp.z, {});
+      if (q) maxY = Math.max(maxY, q.y);
+    }
+    this.pos.y = maxY + this.comH + 0.03;
+    this.vel.set(0, 0, 0); this.angVel.set(0, 0, 0);
+    this.gear = 1; this.rpm = IDLE; this.shiftTimer = 0;
+    this.distAccum = 0;
+    for (const w of this.wheels) { w.omega = 0; w.comp = 0; w.prevComp = 0; }
+    const q = this.track.query(p.x, p.z, {});
+    if (q) { this.trackS = q.s; this._prevS = q.s; }
+  }
+
+  shiftUp() { if (this.gear >= 1 && this.gear < GEARS.length && this.shiftTimer <= 0) { this.gear++; this.shiftTimer = 0.18; } else if (this.gear === -1) this.gear = 1; else if (this.gear === 0) this.gear = 1; }
+  shiftDown() {
+    if (this.gear > 1 && this.shiftTimer <= 0) {
+      // block downshifts that would overrev
+      const ratio = GEARS[this.gear - 2] * FINAL;
+      const wAvg = (this.wheels[0].omega + this.wheels[1].omega) / 2;
+      if (wAvg * ratio * 60 / (2 * Math.PI) < REDLINE + 300) { this.gear--; this.shiftTimer = 0.18; }
+    } else if (this.gear === 1 && Math.abs(this.speed) < 1.5) this.gear = -1;
+  }
+
+  step(dt) {
+    const S = this._scratch;
+    const force = S.t1.set(0, -this.mass * G, 0);   // accumulate world force
+    const torque = S.t2.set(0, 0, 0);               // accumulate world torque
+    const bodyUp = S.t3.set(0, 1, 0).applyQuaternion(this.quat).clone();
+    const bodyFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.quat);
+    const bodyRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat);
+
+    const vFwd = this.vel.dot(bodyFwd);
+    this.speed = vFwd;
+
+    // ---- steering (applied per substep, already smoothed by input layer)
+    const maxSteer = this.maxSteerAngle();
+    let steerAngle = this.ctrl.steer * maxSteer;
+    // keyboard stability assist (tied to TC): counter-steer toward the slide
+    // once body slip angle passes a deadzone, like a driver's reflex.
+    if (this.tc) {
+      const vLatB = this.vel.dot(bodyRight), vLongB = vFwd;
+      if (Math.abs(vLongB) > 8) {
+        const beta = Math.atan2(vLatB, Math.abs(vLongB));
+        const dead = 0.05;
+        if (Math.abs(beta) > dead) {
+          // strong reflex: slides snap back as soon as you ease the keys
+          steerAngle += THREE.MathUtils.clamp(
+            (beta - Math.sign(beta) * dead) * 0.62, -0.12, 0.12);
+        }
+      }
+    }
+
+    // ---- shift logic
+    if (this.shiftTimer > 0) this.shiftTimer -= dt;
+    if (this.shiftCooldown > 0) this.shiftCooldown -= dt;
+    if (this.auto && this.gear >= 1 && this.shiftTimer <= 0 && this.shiftCooldown <= 0) {
+      if (this.rpm > REDLINE - 350 && this.gear < GEARS.length) { this.gear++; this.shiftTimer = 0.15; this.shiftCooldown = 0.5; }
+      else if (this.rpm < 2300 && this.gear > 1 && this.ctrl.brake < 0.7) { this.gear--; this.shiftTimer = 0.13; this.shiftCooldown = 0.4; }
+    }
+
+    // ---- engine & drivetrain
+    const reverse = this.gear === -1;
+    const ratio = (reverse ? 3.4 : GEARS[Math.max(0, this.gear - 1)]) * FINAL;
+    const wAvg = (this.wheels[0].omega + this.wheels[1].omega) / 2;   // FWD
+    let rpmFromWheels = Math.abs(wAvg) * ratio * 60 / (2 * Math.PI);
+    this.rpm = Math.max(IDLE, Math.min(rpmFromWheels, REDLINE + 200));
+    // launch: below clutch lock speed, engine revs follow throttle
+    const clutchLocked = Math.abs(vFwd) > 4.0;
+    if (!clutchLocked) this.rpm = Math.max(this.rpm, IDLE + this.ctrl.throttle * 2200);
+
+    let thr = this.ctrl.throttle * (1 - this.tcCut);
+    if (this.shiftTimer > 0) thr = 0;
+    if (this.rpm >= REDLINE) thr = 0;                              // limiter
+    let tEngine = engineTorque(this.rpm) * thr;
+    const tEngineBrake = (18 + 0.012 * this.rpm) * (1 - thr) * (clutchLocked ? 1 : 0);
+    let tAxle = (tEngine - tEngineBrake) * ratio * DRIVE_EFF * (reverse ? -1 : 1);
+    if (this.gear === 0) tAxle = 0;
+
+    // e-LSD on the front axle
+    const dOmega = this.wheels[0].omega - this.wheels[1].omega;
+    const tLsd = THREE.MathUtils.clamp(dOmega * 350, -1000, 1000);
+    const tDrive = [tAxle / 2 - tLsd / 2, tAxle / 2 + tLsd / 2, 0, 0];
+
+    // brakes: 64/36 front bias
+    const brakeT = this.ctrl.brake * 4800;
+    const tBrake = [brakeT * 0.64, brakeT * 0.64, brakeT * 0.36, brakeT * 0.36];
+    if (this.ctrl.handbrake) { tBrake[2] += 3000; tBrake[3] += 3000; }
+
+    // ---- per wheel: suspension + tire
+    let tcWorst = 0, absActive = false;
+    let contactCount = 0;
+    this.slipFront = 0; this.slipRear = 0;
+
+    for (let wi = 0; wi < 4; wi++) {
+      const w = this.wheels[wi];
+      w.steer = w.front ? steerAngle : 0;
+
+      // ray origin (attach point) in world
+      const attach = S.p.set(w.x, w.attachY, w.z).applyQuaternion(this.quat).add(this.pos);
+      // iterate ground height under the wheel (rays are near-vertical; 2 iterations converge)
+      let gx = attach.x, gz = attach.z, q = null;
+      for (let it = 0; it < 2; it++) {
+        q = this.track.query(gx, gz, w.q);
+        if (!q) break;
+        // slide contact guess down the -bodyUp direction
+        const t = (attach.y - q.y) / Math.max(0.4, bodyUp.y);
+        gx = attach.x - bodyUp.x * t; gz = attach.z - bodyUp.z * t;
+      }
+      if (!q) { w.contact = false; w.load = 0; this._spinWheel(w, tDrive[wi], tBrake[wi], 0, dt); continue; }
+
+      const rayLen = (attach.y - q.y) / Math.max(0.4, bodyUp.y);   // distance along -bodyUp to surface
+      const comp = w.restLen + w.radius - rayLen;
+      w.prevComp = w.comp;
+
+      if (comp < -0.04) {       // airborne
+        w.contact = false; w.comp = Math.max(comp, -0.12); w.load = 0; w.surf = q.surf;
+        this._spinWheel(w, tDrive[wi], tBrake[wi], 0, dt);
+        w.worldPos.copy(attach).addScaledVector(bodyUp, -(w.restLen + Math.min(0.12, -comp)));
+        continue;
+      }
+      contactCount++;
+      w.contact = true; w.surf = q.surf;
+      w.comp = Math.min(comp, w.maxCompress + 0.08);
+      // clamp the damper input: a surface kink crossed at speed must read as
+      // a bump, not as a 20 m/s compression spike that launches the car
+      const compRate = THREE.MathUtils.clamp((w.comp - w.prevComp) / dt, -4, 4);
+
+      // spring + bottom-out + damper + ARB
+      let fSus = w.k * Math.max(0, w.comp);
+      if (w.comp > w.maxCompress) fSus += (w.comp - w.maxCompress) * w.k * 6;
+      fSus += compRate * (compRate > 0 ? w.cBump : w.cReb);
+      const opp = this.wheels[wi ^ 1];                  // FL<->FR, RL<->RR
+      fSus += (w.front ? this.arbF : this.arbR) * (w.comp - opp.comp);
+      fSus = THREE.MathUtils.clamp(fSus, 0, 30000);     // ~2.1g per corner max
+
+      const normal = S.r.set(q.nx, q.ny, q.nz);
+      const contactPt = S.v.copy(attach).addScaledVector(bodyUp, -rayLen);
+      w.worldPos.copy(attach).addScaledVector(bodyUp, -(rayLen - w.radius));
+
+      // suspension force along surface normal
+      force.addScaledVector(normal, fSus);
+      this._addTorque(torque, contactPt, normal, fSus);
+
+      // ---- tire forces
+      const load = fSus;
+      w.load = load;
+      if (load > 1) {
+        // wheel heading projected on contact plane
+        const cs = Math.cos(w.steer), sn = Math.sin(w.steer);
+        const fwd = S.f.copy(bodyFwd).multiplyScalar(cs).addScaledVector(bodyRight, sn);
+        fwd.addScaledVector(normal, -fwd.dot(normal)).normalize();
+        const right = new THREE.Vector3().crossVectors(fwd, normal).normalize();
+
+        // contact point velocity
+        const vc = new THREE.Vector3().copy(this.angVel).cross(S.p.copy(contactPt).sub(this.pos)).add(this.vel);
+        const vLong = vc.dot(fwd), vLat = vc.dot(right);
+
+        const slipRatio = (w.omega * w.radius - vLong) / Math.max(Math.abs(vLong), 2.0);
+        const slipAngle = Math.atan2(vLat, Math.max(Math.abs(vLong), 0.8));
+        w.slipRatio = slipRatio; w.slipAngle = slipAngle;
+
+        // load sensitivity
+        let mu = MU[w.surf] * w.muScale * (1 - 2.2e-5 * Math.max(0, load - 3400));
+        const kp = 0.10, ap = 0.14;
+        const sx = slipRatio / kp, sy = slipAngle / ap;
+        const rho = Math.max(1e-4, Math.hypot(sx, sy));
+        const f = tireCurve(Math.min(rho, 3));
+        let fx = mu * load * f * (sx / rho);
+        let fy = -mu * load * f * (sy / rho);
+
+        // low speed: blend to viscous model so the car comes to rest cleanly
+        const vTot = Math.hypot(vLong, vLat);
+        if (vTot < 1.2) {
+          const b = vTot / 1.2;
+          fy = fy * b - vLat * load * 0.9 * (1 - b);
+          if (Math.abs(w.omega) < 0.8 && this.ctrl.throttle < 0.05) fx = fx * b - vLong * load * 0.5 * (1 - b);
+        }
+
+        force.addScaledVector(fwd, fx).addScaledVector(right, fy);
+        this._addTorque(torque, contactPt, fwd, fx);
+        this._addTorque(torque, contactPt, right, fy);
+
+        // wheel spin with tire reaction
+        this._spinWheel(w, tDrive[wi], tBrake[wi], fx, dt);
+
+        // assists bookkeeping
+        if (w.front && this.ctrl.throttle > 0.1) {
+          if (slipRatio > 0.18) tcWorst = Math.max(tcWorst, slipRatio);
+          // ESP-style: FWD plow — easing throttle restores front grip
+          const latEx = Math.abs(slipAngle) - 0.15;
+          if (latEx > 0 && Math.abs(vLong) > 6) tcWorst = Math.max(tcWorst, latEx * 0.9);
+        }
+        if (slipRatio < -0.13 && this.ctrl.brake > 0.1) absActive = true;
+        const drift = Math.abs(Math.sin(slipAngle)) * Math.min(1, vTot / 8);
+        if (w.front) this.slipFront = Math.max(this.slipFront, drift);
+        else this.slipRear = Math.max(this.slipRear, drift);
+      } else {
+        this._spinWheel(w, tDrive[wi], tBrake[wi], 0, dt);
+      }
+    }
+    this.airborne = contactCount === 0;
+
+    // ---- ABS: directly limit wheel lockup (handled in _spinWheel via flag)
+    this._absActive = this.abs && absActive;
+
+    // ---- TC
+    if (this.tc) {
+      const target = tcWorst > 0 ? Math.min(0.85, tcWorst * 2.6) : 0;
+      this.tcCut += (target - this.tcCut) * Math.min(1, dt * 18);
+    } else this.tcCut = 0;
+
+    // ---- aero (sedan body, small lip spoiler)
+    const v2 = this.vel.lengthSq();
+    if (v2 > 0.1) {
+      const vDir = S.p.copy(this.vel).normalize();
+      force.addScaledVector(vDir, -0.5 * 1.2 * 0.72 * v2);                       // drag
+      const down = 0.5 * 1.2 * 0.28 * Math.min(v2, 90 * 90);
+      force.addScaledVector(bodyUp, -down);
+      const dfPoint = S.v.copy(this.pos).addScaledVector(bodyFwd, -0.25);        // slight rear bias
+      this._addTorque(torque, dfPoint, bodyUp, -down);
+    }
+
+    // ---- guardrail walls
+    this.scrape = Math.max(0, this.scrape - dt * 6);
+    this._walls(force, torque);
+
+    // ---- integrate body (semi-implicit)
+    const acc = S.p.copy(force).multiplyScalar(this.invMass);
+    this.gForce.lerp(S.v.set(acc.x, acc.y + G, acc.z), Math.min(1, dt * 12));
+    this.vel.addScaledVector(acc, dt);
+
+    // torque -> body frame, gyroscopic term, integrate
+    const qInv = S.q.copy(this.quat).invert();
+    this.gBody.copy(this.gForce).applyQuaternion(qInv);
+    const tB = torque.applyQuaternion(qInv);
+    const wB = S.p.copy(this.angVel).applyQuaternion(qInv);
+    const I = this.inertia;
+    const dwx = (tB.x - (wB.y * wB.z * (I.z - I.y))) / I.x;
+    const dwy = (tB.y - (wB.z * wB.x * (I.x - I.z))) / I.y;
+    const dwz = (tB.z - (wB.x * wB.y * (I.y - I.x))) / I.z;
+    wB.x += dwx * dt; wB.y += dwy * dt; wB.z += dwz * dt;
+    // mild angular damping for numeric robustness
+    wB.multiplyScalar(1 - 0.06 * dt);
+    // hard cap: the explicit gyroscopic term diverges past ~30 rad/s
+    // (crash tumbles) — 25 rad/s = 4 rev/s is already a violent flip
+    const wMag = wB.length();
+    if (wMag > 25) wB.multiplyScalar(25 / wMag);
+    this.angVel.copy(wB.applyQuaternion(this.quat));
+
+    const vMag = this.vel.length();
+    if (vMag > 130) this.vel.multiplyScalar(130 / vMag);   // 468 km/h sanity cap
+    this.pos.addScaledVector(this.vel, dt);
+    const om = this.angVel;
+    const dq = new THREE.Quaternion(om.x * dt / 2, om.y * dt / 2, om.z * dt / 2, 0).multiply(this.quat);
+    this.quat.x += dq.x; this.quat.y += dq.y; this.quat.z += dq.z; this.quat.w += dq.w;
+    this.quat.normalize();
+
+    // visual wheel spin angle
+    for (const w of this.wheels) w.spinAngle = (w.spinAngle + w.omega * dt) % (Math.PI * 2);
+
+    // ---- NaN watchdog: a violent numeric blowup auto-recovers to the track
+    if (!isFinite(this.pos.x + this.pos.y + this.pos.z +
+                  this.vel.x + this.vel.y + this.vel.z + this.quat.w)) {
+      this.reset(isFinite(this.trackS) ? this.trackS : 0);
+      return;
+    }
+
+    // ---- track position / lap distance
+    const tq = this.track.query(this.pos.x, this.pos.z, this._bodyQ);
+    if (tq) {
+      let ds = tq.s - this._prevS;
+      const T = this.track.total;
+      if (ds > T / 2) ds -= T; else if (ds < -T / 2) ds += T;
+      this.distAccum += Math.max(0, ds);
+      this._prevS = tq.s;
+      this.trackS = tq.s; this.trackD = tq.d;
+      this.onTrack = tq.surf !== SURF.GRASS;
+    }
+  }
+
+  _spinWheel(w, tDrive, tBrake, fxReaction, dt) {
+    // ABS releases brake torque when wheel is about to lock
+    if (this._absActive && w.slipRatio < -0.10) tBrake *= 0.25;
+    w.omega += (tDrive - fxReaction * w.radius) * dt / w.inertiaW;
+    const dwB = tBrake * dt / w.inertiaW;
+    if (Math.abs(w.omega) <= dwB) w.omega = 0;
+    else w.omega -= Math.sign(w.omega) * dwB;
+    // engine-side floor: clutch locked wheels can't fall below stall... keep free, fine.
+    if (!isFinite(w.omega)) w.omega = 0;
+  }
+
+  _addTorque(torqueAccum, point, dir, mag) {
+    const r = new THREE.Vector3().copy(point).sub(this.pos);
+    torqueAccum.addScaledVector(new THREE.Vector3().crossVectors(r, dir), mag);
+  }
+
+  _walls(force, torque) {
+    const S = this._scratch;
+    const corners = [[-0.92, -2.15], [0.92, -2.15], [-0.92, 2.15], [0.92, 2.15]];
+    for (const [cx, cz] of corners) {
+      const p = new THREE.Vector3(cx, -0.1, cz).applyQuaternion(this.quat).add(this.pos);
+      const q = this.track.query(p.x, p.z, {});
+      if (!q) continue;
+      const pen = Math.abs(q.d) - WALL_D;
+      if (pen <= 0) continue;
+      const outX = Math.sign(q.d) * q.rx, outZ = Math.sign(q.d) * q.rz;     // outward lateral
+      const vc = new THREE.Vector3().copy(this.angVel).cross(S.p.copy(p).sub(this.pos)).add(this.vel);
+      const vOut = vc.x * outX + vc.z * outZ;
+      let fN = pen * 50000 + Math.max(0, vOut) * 4000;
+      fN = Math.min(fN, 55000);
+      const n = new THREE.Vector3(-outX, 0, -outZ);
+      force.addScaledVector(n, fN);
+      this._addTorque(torque, p, n, fN);
+      // scrape friction along the rail — applied at CoM (no torque) so a
+      // glancing hit slows the car instead of spinning it like a top
+      const tangVx = vc.x - vOut * outX, tangVz = vc.z - vOut * outZ;
+      const tl = Math.hypot(tangVx, tangVz);
+      if (tl > 0.5) {
+        force.x += -tangVx / tl * fN * 0.22;
+        force.z += -tangVz / tl * fN * 0.22;
+      }
+      // bleed off yaw rate while grinding the rail
+      this.angVel.y *= 1 - Math.min(0.5, fN / 55000) * 0.04;
+      this.scrape = Math.min(1, Math.max(this.scrape, fN / 30000));
+    }
+  }
+
+  maxSteerAngle() {
+    // speed-sensitive lock matched to tire physics: roughly the angle that
+    // saturates front slip + kinematic term, so full keyboard deflection is
+    // always near (not far past) the grip limit. 32deg crawling, ~3deg at 180.
+    const v = Math.abs(this.speed);
+    return THREE.MathUtils.clamp(0.56 / (1 + Math.pow(v / 11, 1.5)), 0.05, 0.56);
+  }
+
+  get speedKmh() { return Math.abs(this.speed) * 3.6; }
+  get gearLabel() { return this.gear === -1 ? 'R' : this.gear === 0 ? 'N' : String(this.gear); }
+}
