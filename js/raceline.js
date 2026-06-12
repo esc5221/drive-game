@@ -11,7 +11,7 @@ import * as THREE from 'three';
 // Each pass pulls every point toward its neighbors' midpoint (constrained to
 // the lateral corridor) — converging on a shortest/least-curvature path that
 // naturally produces out-in-out lines and late apexes.
-// Used by: the guide ribbon, the rubber darkening, the AI traffic, vAllowed.
+// Used by: the guide ribbon, the rubber darkening, vAllowed.
 let _cache = null;
 export function racingLineOffsets(track) {
   if (_cache) return _cache;

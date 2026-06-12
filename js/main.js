@@ -18,7 +18,6 @@ import { CarAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { Ghost } from './ghost.js';
 import { RaceLine } from './raceline.js';
-import { Traffic } from './traffic.js';
 
 const track = new Track(TRACK);
 
@@ -59,7 +58,6 @@ const hud = new Hud(track);
 const ghost = new Ghost(scene, track);
 hud.ghost = ghost;
 const raceLine = new RaceLine(scene, track);
-const traffic = new Traffic(scene, track, raceLine);
 
 let camMode = 0;     // 0 cockpit, 1 hood, 2 chase
 carVis.setCameraMode(camMode);
@@ -121,10 +119,9 @@ input.onKey = code => {
   if (['ArrowUp', 'KeyW'].includes(code)) hud.toggleHelp(false);
 };
 
-// night state propagates to headlights and AI lamps
+// night state propagates to the headlights
 function applyNight() {
   carVis.setHeadlights(atmo.isNight);
-  traffic.setNight(atmo.isNight);
 }
 
 // ---- car switching (rebuild vehicle + visuals at the same track position)
@@ -152,10 +149,8 @@ const settings = new SettingsPanel({
     car: carId, cam: camMode, ctrl: TOUCH ? input.mode : 'buttons',
     tc: vehicle.tc, abs: vehicle.abs, auto: vehicle.auto,
     line: raceLine.mode, ghost: ghost.enabled, preset: atmo.idx,
-    traffic: traffic.count,
   }),
   setCar,
-  setTraffic: n => { traffic.setDensity(n); },
   setLineMode: m => { raceLine.setMode(m); },
   setCam: i => { camMode = i; carVis.setCameraMode(i); },
   setCtrl: m => { if (TOUCH) input.setMode(m); },
@@ -195,7 +190,7 @@ function updateHaptics(now) {
       lastGear = vehicle.gear;
       Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
     }
-    if (traffic.hit > 0.7 || vehicle.landImpact > 0.55) {
+    if (vehicle.landImpact > 0.55) {
       lastHaptic = now;
       Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {});
       return;
@@ -329,9 +324,7 @@ function loop(now) {
     hud.update(vehicle, dtReal);
     ghost.update(dtReal, vehicle, hud.lapStart !== null ? hud.now() - hud.lapStart : null);
     raceLine.update(vehicle.trackS, Math.abs(vehicle.speed));
-    traffic.update(dtReal, vehicle);
     audio.update(vehicle, dtReal);
-    audio.updateTraffic(traffic.cars, vehicle, dtReal);
     updateHaptics(now);
   }
 
@@ -370,6 +363,5 @@ if (TOUCH) {
 
 window.__vehicle = vehicle;   // debug / test handle
 window.__track = track;
-window.__traffic = traffic;
 window.__renderer = renderer;
 window.__audio = audio;

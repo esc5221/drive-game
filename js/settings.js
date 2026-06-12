@@ -87,12 +87,6 @@ export class SettingsPanel {
       ...group('ghost', [['고스트', () => this.api.toggle('ghost')]]),
     ]));
 
-    card.appendChild(ROW('트래픽 (투어리스트 주행)', group('traffic', [
-      ['없음', () => this.api.setTraffic(0)],
-      ['적음', () => this.api.setTraffic(6)],
-      ['보통', () => this.api.setTraffic(12)],
-    ])));
-
     card.appendChild(ROW('시간대', group('preset', [
       ['정오', () => this.api.setPreset(0)],
       ['아침 안개', () => this.api.setPreset(1)],
@@ -138,7 +132,6 @@ export class SettingsPanel {
     this.btns.auto[0].classList.toggle('active', s.auto);
     this._mark('line', s.line);
     this.btns.ghost[0].classList.toggle('active', s.ghost);
-    this._mark('traffic', s.traffic >= 12 ? 2 : s.traffic > 0 ? 1 : 0);
     this._mark('preset', s.preset);
     const tierIdx = { ultra: 1, high: 2, low: 3 }[localStorage.getItem('ns-tier')] || 0;
     this._mark('tier', tierIdx);

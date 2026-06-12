@@ -93,69 +93,6 @@ export class CarAudio {
     this._prevThr = 0;
     this._popCool = 0;
 
-    // ---- AI traffic voices: 4-voice pool, nearest cars get a voice.
-    // Manual doppler (the Web Audio doppler API was removed from the spec).
-    this.aiVoices = [];
-    for (let i = 0; i < 4; i++) {
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 60;
-      const o2 = ctx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = 91;
-      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700; f.Q.value = 0.8;
-      const g = ctx.createGain(); g.gain.value = 0;
-      const pan = ctx.createStereoPanner();
-      o.connect(f); o2.connect(f); f.connect(g); g.connect(pan); pan.connect(this.master);
-      o.start(); o2.start();
-      this.aiVoices.push({ o, o2, f, g, pan });
-    }
-  }
-
-  // positional AI engine sounds with manual doppler shift
-  updateTraffic(cars, vehicle, dt) {
-    if (!this.started || !cars) return;
-    const t = this.ctx.currentTime;
-    const px = vehicle.pos.x, pz = vehicle.pos.z;
-    // horizontal forward/right from the body yaw (for stereo panning)
-    const q = vehicle.quat;
-    const fwd = { x: -(2 * (q.x * q.z + q.w * q.y)), z: -(1 - 2 * (q.x * q.x + q.y * q.y)) };
-    const fl = Math.hypot(fwd.x, fwd.z) || 1;
-    const right = { x: -fwd.z / fl, z: fwd.x / fl };
-
-    const near = [];
-    for (const c of cars) {
-      const dx = c.vis.group.position.x - px, dz = c.vis.group.position.z - pz;
-      const dist = Math.hypot(dx, dz);
-      if (dist < 240) near.push({ c, dist, dx, dz });
-    }
-    near.sort((a, b) => a.dist - b.dist);
-
-    for (let i = 0; i < 4; i++) {
-      const v = this.aiVoices[i];
-      const slot = near[i];
-      if (!slot) { v.g.gain.setTargetAtTime(0, t, 0.1); continue; }
-      const { c, dist, dx, dz } = slot;
-      const vr = c._pd !== undefined ? (dist - c._pd) / Math.max(dt, 1e-3) : 0;
-      c._pd = dist;
-      const dopp = 343 / (343 + Math.max(-90, Math.min(90, vr)));
-      const f0 = (38 + c.v * 2.4) * dopp;
-      v.o.frequency.setTargetAtTime(f0, t, 0.05);
-      v.o2.frequency.setTargetAtTime(f0 * 1.52, t, 0.05);
-      v.f.frequency.setTargetAtTime(420 + c.v * 14, t, 0.08);
-      const gain = 0.40 / (1 + Math.pow(dist / 16, 1.75));
-      v.g.gain.setTargetAtTime(gain, t, 0.07);
-      v.pan.pan.setTargetAtTime(Math.max(-0.9, Math.min(0.9,
-        (dx * right.x + dz * right.z) / Math.max(dist, 4) * 1.3)), t, 0.08);
-    }
-  }
-
-  _burst(filterType, freq, q, gain, dur) {
-    const ctx = this.ctx;
-    const src = ctx.createBufferSource(); src.buffer = this._noiseBuf; src.loop = true;
-    const f = ctx.createBiquadFilter(); f.type = filterType; f.frequency.value = freq; f.Q.value = q;
-    const g = ctx.createGain();
-    const t = ctx.currentTime;
-    g.gain.setValueAtTime(gain, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    src.connect(f); f.connect(g); g.connect(this.master);
-    src.start(); src.stop(t + dur + 0.05);
   }
 
   update(vehicle, dt) {
