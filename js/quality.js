@@ -1,11 +1,15 @@
-// Quality tiers: desktop runs everything; mobile scales pixel ratio, shadows,
-// post-processing, forest density, fog distance and mirror rate.
-// Auto-downgrades once if measured FPS stays low.
+// Quality tiers + runtime auto-downgrade ladder.
+// Mobile aliasing fix lives here too: tiers with post-processing get an
+// MSAA(4x) composer target; the low tier renders to the default framebuffer
+// where native antialias:true applies.
 
 export const TIERS = {
-  ultra: { pr: 2.0, shadow: 2048, bloom: true,  blur: true,  trees: 1.00, mirror: 2, farScale: 1.0 },
-  high:  { pr: 1.5, shadow: 1024, bloom: true,  blur: true,  trees: 0.70, mirror: 3, farScale: 0.85 },
-  low:   { pr: 1.0, shadow: 0,    bloom: false, blur: false, trees: 0.40, mirror: 0, farScale: 0.60 },
+  ultra: { pr: 2.0, shadow: 2048, soft: true,  msaa: 4, bloom: true,  blur: true,
+           trees: 1.00, mirror: 2, farScale: 1.0,  aniso: 8 },
+  high:  { pr: 2.0, shadow: 1024, soft: false, msaa: 4, bloom: true,  blur: true,
+           trees: 0.70, mirror: 3, farScale: 0.85, aniso: 4 },
+  low:   { pr: 1.0, shadow: 0,    soft: false, msaa: 0, bloom: false, blur: false,
+           trees: 0.40, mirror: 0, farScale: 0.60, aniso: 2 },
 };
 
 export function detectTier() {
@@ -18,28 +22,36 @@ export function detectTier() {
   return (mem >= 6 && cores >= 8) ? 'high' : 'low';
 }
 
-// runtime knobs that don't need a scene rebuild
+// steps down one knob at a time until FPS recovers
 export class AutoQuality {
   constructor(tierName, renderer, post) {
-    this.tier = tierName;
     this.renderer = renderer;
     this.post = post;
     this._frames = 0;
     this._t = 0;
-    this._settled = false;
+    this._step = 0;
+    this.done = tierName === 'low' || localStorage.getItem('ns-tier') != null;
+    this.steps = [
+      { label: '해상도 1.5x', run: () => this._setPr(1.5) },
+      { label: '블룸/블러 OFF', run: () => post.setCheap() },
+      { label: '해상도 1.0x', run: () => this._setPr(1.0) },
+    ];
   }
-  tick(dt, onDowngrade) {
-    if (this._settled || this.tier === 'low') return;
+  _setPr(pr) {
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, pr));
+    this.post.resize(innerWidth, innerHeight);
+  }
+  tick(dt, notify) {
+    if (this.done) return;
     this._t += dt;
     this._frames++;
-    if (this._t >= 6) {
-      const fps = this._frames / this._t;
-      if (fps < 40) {
-        this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1));
-        if (this.post) this.post.setCheap();
-        onDowngrade(fps | 0);
-      }
-      this._settled = true;
-    }
+    if (this._t < 5) return;
+    const fps = this._frames / this._t;
+    this._t = 0; this._frames = 0;
+    if (fps >= 42) { this.done = true; return; }
+    if (this._step >= this.steps.length) { this.done = true; return; }
+    const s = this.steps[this._step++];
+    s.run();
+    notify(`성능 최적화: ${s.label} (${fps | 0} fps)`);
   }
 }

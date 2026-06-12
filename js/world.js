@@ -203,6 +203,7 @@ export function buildWorld(scene, track, opts = {}) {
   const roadMat = new THREE.MeshStandardMaterial({
     map: asphaltTexture(), roughness: 0.94, metalness: 0,
   });
+  roadMat.map.anisotropy = Math.min(16, (opts.aniso || 8) * 2);
   const road = buildRibbon(track, -ROAD_HALF, ROAD_HALF, 0, roadMat, { vScale: 10 });
   road.receiveShadow = true;
   scene.add(road);

@@ -3,15 +3,26 @@
 실제 OSM 도로 geometry + 실측 고도 데이터로 만든 노르트슐라이페 20.71km 풀코스.
 Three.js + 자체 구현 차량 물리 (외부 물리엔진 없음).
 
-## 실행
+## 실행 (데스크톱)
 
 ```
-./run.sh            # 또는: python3 -m http.server 8741
-open http://localhost:8741
+npm install
+npm run dev          # vite dev 서버 → http://localhost:8741
+npm run build        # dist/ 산출 (Capacitor용)
 ```
 
-ES 모듈 CORS 때문에 file:// 직접 열기는 안 됨. 로컬 서버 필수.
-코드 수정 후에는 브라우저에서 **하드 리프레시 (Cmd+Shift+R)** — 모듈 캐시 주의.
+## 모바일 (Capacitor / Android)
+
+```
+npm run build && npx cap sync android
+cd android && JAVA_HOME=$(/usr/libexec/java_home -v 17) ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+- 터치 컨트롤: 좌측 ◀▶ 조향(또는 "틸트" 버튼으로 자이로 조향), 우측 BRK/GAS/HB
+- 상단 액션바: R(복구) C(카메라) L(라인) G(고스트) N(시간대) 틸트(조향 모드)
+- 품질 티어 자동 감지 (ultra/high/low) + 저FPS 시 자동 하향
+- 햅틱: 연석/가드레일/변속 진동
 
 ## 조작
 

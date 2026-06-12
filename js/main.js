@@ -10,6 +10,8 @@ import { CarVisual } from './car.js';
 import { Input } from './input.js';
 import { TouchInput, isTouchDevice, showStartOverlay } from './touch.js';
 import { TIERS, detectTier, AutoQuality } from './quality.js';
+import { CARS, savedCarId } from './cars.js';
+import { SettingsPanel } from './settings.js';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { SURF } from './track.js';
 import { CarAudio } from './audio.js';
@@ -23,27 +25,31 @@ const TOUCH = isTouchDevice();
 const tierName = detectTier();
 const TIER = TIERS[tierName];
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({
+  antialias: TIER.msaa === 0,          // composer tiers get MSAA via render target
+  powerPreference: 'high-performance',
+});
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, TIER.pr));
 renderer.shadowMap.enabled = TIER.shadow > 0;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = TIER.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const atmo = new Atmosphere(scene, renderer, { shadow: TIER.shadow, farScale: TIER.farScale });
-buildWorld(scene, track, { trees: TIER.trees });
+buildWorld(scene, track, { trees: TIER.trees, aniso: TIER.aniso });
 
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.06, 24000);
 const post = new Post(renderer, scene, camera, TIER);
 const autoQ = new AutoQuality(tierName, renderer, post);
 
-const vehicle = new Vehicle(track);
 const SPAWN_S = 3550;          // just before Hatzenbach — corners right away
+let carId = savedCarId();
+let vehicle = new Vehicle(track, CARS[carId]);
 vehicle.reset(SPAWN_S);
 
-const carVis = new CarVisual(scene, renderer);
+let carVis = new CarVisual(scene, renderer, CARS[carId]);
 const input = TOUCH ? new TouchInput() : new Input();
 const audio = new CarAudio();
 const hud = new Hud(track);
@@ -104,12 +110,64 @@ input.onKey = code => {
       hud.flash('레이싱 라인 ' + (raceLine.toggle() ? 'ON' : 'OFF'));
       break;
     case 'KeyP': case 'Escape':
-      paused = !paused;
-      hud.flash(paused ? 'PAUSED (P to resume)' : 'GO');
+      settings.toggle();
       break;
   }
   if (['ArrowUp', 'KeyW'].includes(code)) hud.toggleHelp(false);
 };
+
+// ---- car switching (rebuild vehicle + visuals at the same track position)
+function setCar(id) {
+  if (!CARS[id] || id === carId) return;
+  carId = id;
+  localStorage.setItem('ns-car', id);
+  const s = vehicle.trackS;
+  carVis.dispose();
+  vehicle = new Vehicle(track, CARS[id]);
+  vehicle.reset(s);
+  carVis = new CarVisual(scene, renderer, CARS[id]);
+  carVis.setCameraMode(camMode);
+  lastGear = 1;
+  window.__vehicle = vehicle;
+  hud.invalidateLap();
+  hud.flash(CARS[id].name);
+}
+
+// ---- settings panel
+const settings = new SettingsPanel({
+  isTouch: TOUCH,
+  getState: () => ({
+    car: carId, cam: camMode, ctrl: TOUCH ? input.mode : 'buttons',
+    tc: vehicle.tc, abs: vehicle.abs, auto: vehicle.auto,
+    line: raceLine.mesh.visible, ghost: ghost.enabled, preset: atmo.idx,
+  }),
+  setCar,
+  setCam: i => { camMode = i; carVis.setCameraMode(i); },
+  setCtrl: m => { if (TOUCH) input.setMode(m); },
+  setPreset: i => atmo.apply(i),
+  setTier: name => {
+    if (name) localStorage.setItem('ns-tier', name);
+    else localStorage.removeItem('ns-tier');
+    location.reload();
+  },
+  toggle: name => {
+    if (name === 'tc') vehicle.tc = !vehicle.tc;
+    else if (name === 'abs') vehicle.abs = !vehicle.abs;
+    else if (name === 'auto') { vehicle.auto = !vehicle.auto; if (vehicle.gear < 1) vehicle.gear = 1; }
+    else if (name === 'line') raceLine.toggle();
+    else if (name === 'ghost') ghost.enabled = !ghost.enabled;
+  },
+  resetRecords: () => {
+    localStorage.removeItem('ns-best2');
+    localStorage.removeItem('ns-best-sectors2');
+    localStorage.removeItem('ns-ghost2');
+    hud.bestLap = null; hud.bestSectors = [null, null, null];
+    hud.el.best.textContent = 'BEST  --:--.---';
+    ghost.best = null;
+    hud.flash('기록 초기화 완료');
+  },
+  setPaused: v => { paused = v; },
+});
 
 // haptics (mobile): curb buzz, rail scrape, gear shifts
 let lastHaptic = 0;

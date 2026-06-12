@@ -44,15 +44,22 @@ const SpeedShader = {
 };
 
 export class Post {
-  constructor(renderer, scene, camera, opts = { bloom: true, blur: true }) {
+  constructor(renderer, scene, camera, opts = { bloom: true, blur: true, msaa: 4 }) {
     this.renderer = renderer;
     this.scene = scene;
     this.camera = camera;
     this.enabled = opts.bloom || opts.blur;
     this.bloom = null;
     this.speed = null;
-    if (!this.enabled) return;            // low tier: plain forward render
-    this.composer = new EffectComposer(renderer);
+    if (!this.enabled) return;            // low tier: plain forward render (native AA)
+    // MSAA render target — without this, the composer path is unantialiased
+    // (the jaggies seen on mobile)
+    const rt = new THREE.WebGLRenderTarget(1, 1, {
+      samples: opts.msaa || 0, type: THREE.HalfFloatType,
+    });
+    this.composer = new EffectComposer(renderer, rt);
+    this.composer.setPixelRatio(renderer.getPixelRatio());
+    this.composer.setSize(innerWidth, innerHeight);
     this.composer.addPass(new RenderPass(scene, camera));
     if (opts.bloom) {
       this.bloom = new UnrealBloomPass(
@@ -82,5 +89,9 @@ export class Post {
     if (this.enabled) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
   }
-  resize(w, h) { if (this.enabled) this.composer.setSize(w, h); }
+  resize(w, h) {
+    if (!this.enabled) return;
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer.setSize(w, h);
+  }
 }

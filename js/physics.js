@@ -10,20 +10,16 @@ export const DT = 1 / 240;
 // surface grip
 const MU = { [SURF.ROAD]: 1.22, [SURF.CURB]: 1.10, [SURF.GRASS]: 0.55 };
 
-// engine: 2.0T 4-cyl hot hatch (Elantra N spec) — flat turbo torque plateau,
-// ~280 hp @ 6200, 392 Nm from ~2100 rpm
-const TQ_RPM = [800, 1400, 1800, 2100, 2800, 3600, 4400, 4700, 5200, 5800, 6200, 6600, 6900, 7300];
-const TQ_NM  = [140, 220,  310,  385,  392,  392,  392,  392,  375,  345,  315,  285,  255,  70];
-const IDLE = 850, REDLINE = 6900;
-const GEARS = [3.62, 2.19, 1.52, 1.13, 0.89, 0.72];
-const FINAL = 4.20, DRIVE_EFF = 0.90;
+// engine torque from the car spec's curve
+const DRIVE_EFF = 0.90;
 
-function engineTorque(rpm) {
-  if (rpm <= TQ_RPM[0]) return TQ_NM[0];
-  for (let i = 1; i < TQ_RPM.length; i++) {
-    if (rpm <= TQ_RPM[i]) {
-      const t = (rpm - TQ_RPM[i - 1]) / (TQ_RPM[i] - TQ_RPM[i - 1]);
-      return TQ_NM[i - 1] + t * (TQ_NM[i] - TQ_NM[i - 1]);
+function engineTorque(eng, rpm) {
+  const R = eng.rpm, N = eng.nm;
+  if (rpm <= R[0]) return N[0];
+  for (let i = 1; i < R.length; i++) {
+    if (rpm <= R[i]) {
+      const t = (rpm - R[i - 1]) / (R[i] - R[i - 1]);
+      return N[i - 1] + t * (N[i] - N[i - 1]);
     }
   }
   return 0;
@@ -37,47 +33,46 @@ function tireCurve(rho) {
 const V = () => new THREE.Vector3();
 
 export class Vehicle {
-  constructor(track) {
+  constructor(track, spec) {
     this.track = track;
+    this.spec = spec;
 
-    // body — FWD sport sedan, nose-heavy (60:40)
-    this.mass = 1430;
+    this.mass = spec.mass;
     this.invMass = 1 / this.mass;
-    this.inertia = new THREE.Vector3(2200, 2550, 580);     // pitch(x), yaw(y), roll(z) in body frame
+    this.inertia = new THREE.Vector3(...spec.inertia);     // pitch(x), yaw(y), roll(z)
     this.pos = V(); this.vel = V();
     this.quat = new THREE.Quaternion();
     this.angVel = V();                                      // world frame
-    this.comH = 0.45;                                       // CoM height above ground at rest
+    this.comH = spec.comH;
+    this.drivenFront = spec.drive === 'FWD';
 
     // wheels: FL FR RL RR.  body frame: +x right, +y up, -z forward
-    // CoM placed for 60% front static load (FWD traction + understeer lean)
-    const halfTrackF = 0.80, halfTrackR = 0.81;
+    const W = spec.wheels;
     this.wheels = [
-      { x: -halfTrackF, z: -1.06, front: true },
-      { x: +halfTrackF, z: -1.06, front: true },
-      { x: -halfTrackR, z: +1.59, front: false },
-      { x: +halfTrackR, z: +1.59, front: false },
+      { x: -W.htF, z: W.fz, front: true },
+      { x: +W.htF, z: W.fz, front: true },
+      { x: -W.htR, z: W.rz, front: false },
+      { x: +W.htR, z: W.rz, front: false },
     ].map(w => ({
       ...w,
-      attachY: 0.21,                 // ray origin above CoM
-      restLen: 0.30, radius: 0.33, inertiaW: 1.3,
-      k: w.front ? 68000 : 48000,
-      cBump: w.front ? 5200 : 3700, cReb: w.front ? 8200 : 5900,
-      maxCompress: 0.17,
+      attachY: W.attachY,
+      restLen: W.restLen, radius: W.radius, inertiaW: W.iw,
+      k: w.front ? W.kF : W.kR,
+      cBump: w.front ? W.cBF : W.cBR, cReb: w.front ? W.cRF : W.cRR,
+      maxCompress: W.maxC,
       comp: 0, prevComp: 0, contact: false,
-      omega: 0,                       // wheel spin (rad/s)
+      omega: 0,
       slipRatio: 0, slipAngle: 0, load: 0, surf: SURF.ROAD,
-      // slight rear grip bonus: planted tail, saturates front first (understeer)
-      muScale: w.front ? 0.99 : 1.07,
-      q: {},                          // surface query scratch
+      muScale: w.front ? W.muF : W.muR,
+      q: {},
       worldPos: V(),
       steer: 0, spinAngle: 0,
     }));
-    this.arbF = 26000; this.arbR = 16000;
+    this.arbF = spec.arbF; this.arbR = spec.arbR;
 
     // drivetrain
-    this.gear = 1;                    // 1..6 (0 = neutral handled via clutch), -1 reverse
-    this.rpm = IDLE;
+    this.gear = 1;                    // 1..N (0 = neutral via clutch), -1 reverse
+    this.rpm = spec.engine.idle;
     this.auto = true;
     this.shiftTimer = 0; this.shiftCooldown = 0;
     this.tc = true; this.abs = true;
@@ -117,20 +112,21 @@ export class Vehicle {
     }
     this.pos.y = maxY + this.comH + 0.03;
     this.vel.set(0, 0, 0); this.angVel.set(0, 0, 0);
-    this.gear = 1; this.rpm = IDLE; this.shiftTimer = 0;
+    this.gear = 1; this.rpm = this.spec.engine.idle; this.shiftTimer = 0;
     this.distAccum = 0;
     for (const w of this.wheels) { w.omega = 0; w.comp = 0; w.prevComp = 0; }
     const q = this.track.query(p.x, p.z, {});
     if (q) { this.trackS = q.s; this._prevS = q.s; }
   }
 
-  shiftUp() { if (this.gear >= 1 && this.gear < GEARS.length && this.shiftTimer <= 0) { this.gear++; this.shiftTimer = 0.18; } else if (this.gear === -1) this.gear = 1; else if (this.gear === 0) this.gear = 1; }
+  shiftUp() { if (this.gear >= 1 && this.gear < this.spec.gears.length && this.shiftTimer <= 0) { this.gear++; this.shiftTimer = 0.18; } else if (this.gear === -1) this.gear = 1; else if (this.gear === 0) this.gear = 1; }
   shiftDown() {
     if (this.gear > 1 && this.shiftTimer <= 0) {
       // block downshifts that would overrev
-      const ratio = GEARS[this.gear - 2] * FINAL;
-      const wAvg = (this.wheels[0].omega + this.wheels[1].omega) / 2;
-      if (wAvg * ratio * 60 / (2 * Math.PI) < REDLINE + 300) { this.gear--; this.shiftTimer = 0.18; }
+      const ratio = this.spec.gears[this.gear - 2] * this.spec.final;
+      const di = this.drivenFront ? 0 : 2;
+      const wAvg = (this.wheels[di].omega + this.wheels[di + 1].omega) / 2;
+      if (wAvg * ratio * 60 / (2 * Math.PI) < this.spec.engine.redline + 300) { this.gear--; this.shiftTimer = 0.18; }
     } else if (this.gear === 1 && Math.abs(this.speed) < 1.5) this.gear = -1;
   }
 
@@ -163,40 +159,46 @@ export class Vehicle {
       }
     }
 
+    const sp = this.spec, ENG = sp.engine;
+
     // ---- shift logic
     if (this.shiftTimer > 0) this.shiftTimer -= dt;
     if (this.shiftCooldown > 0) this.shiftCooldown -= dt;
     if (this.auto && this.gear >= 1 && this.shiftTimer <= 0 && this.shiftCooldown <= 0) {
-      if (this.rpm > REDLINE - 350 && this.gear < GEARS.length) { this.gear++; this.shiftTimer = 0.15; this.shiftCooldown = 0.5; }
-      else if (this.rpm < 2300 && this.gear > 1 && this.ctrl.brake < 0.7) { this.gear--; this.shiftTimer = 0.13; this.shiftCooldown = 0.4; }
+      if (this.rpm > ENG.redline - 350 && this.gear < sp.gears.length) { this.gear++; this.shiftTimer = 0.15; this.shiftCooldown = 0.5; }
+      else if (this.rpm < ENG.shiftDown && this.gear > 1 && this.ctrl.brake < 0.7) { this.gear--; this.shiftTimer = 0.13; this.shiftCooldown = 0.4; }
     }
 
     // ---- engine & drivetrain
     const reverse = this.gear === -1;
-    const ratio = (reverse ? 3.4 : GEARS[Math.max(0, this.gear - 1)]) * FINAL;
-    const wAvg = (this.wheels[0].omega + this.wheels[1].omega) / 2;   // FWD
+    const ratio = (reverse ? sp.reverse : sp.gears[Math.max(0, this.gear - 1)]) * sp.final;
+    const di = this.drivenFront ? 0 : 2;            // driven axle index
+    const wAvg = (this.wheels[di].omega + this.wheels[di + 1].omega) / 2;
     let rpmFromWheels = Math.abs(wAvg) * ratio * 60 / (2 * Math.PI);
-    this.rpm = Math.max(IDLE, Math.min(rpmFromWheels, REDLINE + 200));
+    this.rpm = Math.max(ENG.idle, Math.min(rpmFromWheels, ENG.redline + 200));
     // launch: below clutch lock speed, engine revs follow throttle
     const clutchLocked = Math.abs(vFwd) > 4.0;
-    if (!clutchLocked) this.rpm = Math.max(this.rpm, IDLE + this.ctrl.throttle * 2200);
+    if (!clutchLocked) this.rpm = Math.max(this.rpm, ENG.idle + this.ctrl.throttle * 2600);
 
     let thr = this.ctrl.throttle * (1 - this.tcCut);
     if (this.shiftTimer > 0) thr = 0;
-    if (this.rpm >= REDLINE) thr = 0;                              // limiter
-    let tEngine = engineTorque(this.rpm) * thr;
-    const tEngineBrake = (18 + 0.012 * this.rpm) * (1 - thr) * (clutchLocked ? 1 : 0);
+    if (this.rpm >= ENG.redline) thr = 0;                          // limiter
+    let tEngine = engineTorque(ENG, this.rpm) * thr;
+    const tEngineBrake = (ENG.engBrake[0] + ENG.engBrake[1] * this.rpm) * (1 - thr) * (clutchLocked ? 1 : 0);
     let tAxle = (tEngine - tEngineBrake) * ratio * DRIVE_EFF * (reverse ? -1 : 1);
     if (this.gear === 0) tAxle = 0;
 
-    // e-LSD on the front axle
-    const dOmega = this.wheels[0].omega - this.wheels[1].omega;
+    // LSD on the driven axle
+    const dOmega = this.wheels[di].omega - this.wheels[di + 1].omega;
     const tLsd = THREE.MathUtils.clamp(dOmega * 350, -1000, 1000);
-    const tDrive = [tAxle / 2 - tLsd / 2, tAxle / 2 + tLsd / 2, 0, 0];
+    const tDrive = [0, 0, 0, 0];
+    tDrive[di] = tAxle / 2 - tLsd / 2;
+    tDrive[di + 1] = tAxle / 2 + tLsd / 2;
 
-    // brakes: 64/36 front bias
-    const brakeT = this.ctrl.brake * 4800;
-    const tBrake = [brakeT * 0.64, brakeT * 0.64, brakeT * 0.36, brakeT * 0.36];
+    // brakes
+    const brakeT = this.ctrl.brake * sp.brakeT;
+    const bias = sp.bias;
+    const tBrake = [brakeT * bias, brakeT * bias, brakeT * (1 - bias), brakeT * (1 - bias)];
     if (this.ctrl.handbrake) { tBrake[2] += 3000; tBrake[3] += 3000; }
 
     // ---- per wheel: suspension + tire
@@ -297,11 +299,12 @@ export class Vehicle {
         this._spinWheel(w, tDrive[wi], tBrake[wi], fx, dt);
 
         // assists bookkeeping
-        if (w.front && this.ctrl.throttle > 0.1) {
+        const driven = w.front === this.drivenFront;
+        if (driven && this.ctrl.throttle > 0.1) {
           if (slipRatio > 0.18) tcWorst = Math.max(tcWorst, slipRatio);
-          // ESP-style: FWD plow — easing throttle restores front grip
-          const latEx = Math.abs(slipAngle) - 0.15;
-          if (latEx > 0 && Math.abs(vLong) > 6) tcWorst = Math.max(tcWorst, latEx * 0.9);
+          // ESP: FWD plow / RWD power-oversteer — both fixed by easing throttle
+          const latEx = Math.abs(slipAngle) - (this.drivenFront ? 0.15 : 0.13);
+          if (latEx > 0 && Math.abs(vLong) > 6) tcWorst = Math.max(tcWorst, latEx * (this.drivenFront ? 0.9 : 1.2));
         }
         if (slipRatio < -0.13 && this.ctrl.brake > 0.1) absActive = true;
         const drift = Math.abs(Math.sin(slipAngle)) * Math.min(1, vTot / 8);
@@ -326,8 +329,8 @@ export class Vehicle {
     const v2 = this.vel.lengthSq();
     if (v2 > 0.1) {
       const vDir = S.p.copy(this.vel).normalize();
-      force.addScaledVector(vDir, -0.5 * 1.2 * 0.72 * v2);                       // drag
-      const down = 0.5 * 1.2 * 0.28 * Math.min(v2, 90 * 90);
+      force.addScaledVector(vDir, -0.5 * 1.2 * sp.aero.cda * v2);                 // drag
+      const down = 0.5 * 1.2 * sp.aero.cla * Math.min(v2, 90 * 90);
       force.addScaledVector(bodyUp, -down);
       const dfPoint = S.v.copy(this.pos).addScaledVector(bodyFwd, -0.25);        // slight rear bias
       this._addTorque(torque, dfPoint, bodyUp, -down);

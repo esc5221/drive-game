@@ -73,6 +73,26 @@
                      font-size: 15px; border-radius: 12px; }
   #t-tilt { width: auto !important; padding: 0 12px; }
 
+  /* ---------- settings panel ---------- */
+  #settings { position: fixed; inset: 0; z-index: 50; background: rgba(3,7,14,0.78);
+    display: flex; align-items: center; justify-content: center; pointer-events: auto; }
+  #settings-card { background: rgba(13,19,28,0.97); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 16px; padding: 18px 22px; color: #fff; max-height: 88vh; overflow-y: auto;
+    min-width: 340px; max-width: 92vw; font-family: inherit; }
+  #settings-card h2 { margin: 0 0 12px; font-size: 18px; color: #ffd24a; letter-spacing: 2px; }
+  .set-row { margin-bottom: 11px; }
+  .set-title { font-size: 11px; opacity: 0.65; margin-bottom: 5px; letter-spacing: 1px; }
+  .set-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .set-btn { background: rgba(255,255,255,0.07); color: #dfe4ea; font-family: inherit;
+    border: 1px solid rgba(255,255,255,0.18); border-radius: 9px; padding: 8px 14px;
+    font-size: 13px; font-weight: 600; cursor: pointer; }
+  .set-btn.active { background: rgba(64,130,200,0.45); border-color: #7ec8ff; color: #fff; }
+  .set-btn.danger { border-color: rgba(255,110,100,0.5); color: #ff9d94; }
+  #set-resume { width: 100%; margin-top: 8px; padding: 12px; font-size: 15px;
+    background: rgba(50,160,90,0.35); border-color: rgba(120,255,160,0.45); border-radius: 10px;
+    color: #fff; border-style: solid; border-width: 1px; font-weight: 700; cursor: pointer;
+    font-family: inherit; }
+
   #tap-start { position: fixed; inset: 0; z-index: 99; background: rgba(4,9,17,0.94);
     display: flex; align-items: center; justify-content: center; color: #fff;
     text-align: center; pointer-events: auto; }

@@ -52,28 +52,17 @@ export class TouchInput {
 
     root.append(this.leftBtn, this.rightBtn, this.gasBtn, this.brakeBtn, this.hbBtn);
 
-    // action buttons -> key codes (reuses main.js key logic)
-    const actions = [
-      ['R', 'KeyR'], ['C', 'KeyC'], ['L', 'KeyL'],
-      ['G', 'KeyG'], ['N', 'KeyN'],
-    ];
+    // minimal in-game bar: pause/settings + reset only (rest lives in settings)
     const bar = document.createElement('div');
     bar.id = 't-actions';
-    for (const [label, code] of actions) {
-      const b = BTN('t-' + label, label, 'small');
+    for (const [label, code] of [['⏸', 'KeyP'], ['복구', 'KeyR']]) {
+      const b = BTN('t-' + code, label, 'small');
       b.addEventListener('pointerdown', e => {
         e.preventDefault();
         if (this.onKey) this.onKey(code);
       });
       bar.appendChild(b);
     }
-    const tiltBtn = BTN('t-tilt', '틸트', 'small');
-    tiltBtn.addEventListener('pointerdown', e => {
-      e.preventDefault();
-      this.setMode(this.mode === 'tilt' ? 'buttons' : 'tilt');
-      if (this.onKey) this.onKey('__mode:' + this.mode);
-    });
-    bar.appendChild(tiltBtn);
     root.appendChild(bar);
     document.body.appendChild(root);
 
