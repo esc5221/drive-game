@@ -332,11 +332,11 @@ export class CarVisual {
     const cluster = new THREE.Group();
     cluster.position.set(-0.37, 0.52, -0.86);
     cluster.rotation.x = -0.30;
-    const backing = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.26, 0.03), darker);
-    backing.position.set(0, 0, -0.018);
+    const backing = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.26, 0.03), darker);
+    backing.position.set(0.07, 0, -0.018);
     cluster.add(backing);
-    const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.05, 0.06), padMat);
-    bezel.position.set(0, 0.145, -0.01);
+    const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.05, 0.06), padMat);
+    bezel.position.set(0.07, 0.145, -0.01);
     cluster.add(bezel);
 
     const D = this.spec;
@@ -381,12 +381,14 @@ export class CarVisual {
     this.tcLamp.visible = false;
     cluster.add(this.tcLamp);
 
+    // big gear indicator LCD — right of the speed dial, clear of the wheel
     this.digCanvas = document.createElement('canvas');
-    this.digCanvas.width = 128; this.digCanvas.height = 64;
+    this.digCanvas.width = 128; this.digCanvas.height = 128;
     this.digTex = new THREE.CanvasTexture(this.digCanvas);
-    const dig = new THREE.Mesh(new THREE.PlaneGeometry(0.10, 0.05),
+    const dig = new THREE.Mesh(new THREE.PlaneGeometry(0.105, 0.105),
       new THREE.MeshBasicMaterial({ map: this.digTex }));
-    dig.position.set(0, -0.065, 0.003);
+    dig.position.set(0.305, 0.035, 0.012);
+    dig.rotation.y = -0.35;                 // tilt toward the driver's eye
     cluster.add(dig);
     cp.add(cluster);
 
@@ -694,15 +696,22 @@ export class CarVisual {
       (vehicle.tcCut > 0.04 || (vehicle._absActive && vehicle.ctrl.brake > 0.3)) && blink;
 
     this._digTimer = (this._digTimer || 0) + dtVis;
-    if (this._digTimer > 0.12) {
+    if (this._digTimer > 0.08) {
       this._digTimer = 0;
       const g = this.digCanvas.getContext('2d');
-      g.fillStyle = '#06231a'; g.fillRect(0, 0, 128, 64);
-      g.fillStyle = '#46e6a0'; g.font = 'bold 40px monospace';
+      const rl = vehicle.spec.engine.redline;
+      const hot = vehicle.rpm > rl * 0.92;
+      const limiter = vehicle.rpm > rl - 150;
+      g.fillStyle = '#081a14'; g.fillRect(0, 0, 128, 128);
+      g.strokeStyle = '#1d3a30'; g.lineWidth = 3; g.strokeRect(2, 2, 124, 124);
+      // gear: huge digit, amber near redline, red flash at the limiter
+      g.fillStyle = limiter ? (blink ? '#ff2418' : '#7a1410')
+                  : hot ? '#ffb024' : '#5cf0ae';
+      g.font = 'bold 96px "Arial Black", Arial';
       g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(vehicle.gearLabel, 28, 34);
-      g.font = 'bold 24px monospace';
-      g.fillText(String(Math.round(vehicle.speedKmh)), 84, 34);
+      g.fillText(vehicle.gearLabel, 64, 56);
+      g.fillStyle = '#9fd8c2'; g.font = 'bold 24px monospace';
+      g.fillText(String(Math.round(vehicle.speedKmh)), 64, 112);
       this.digTex.needsUpdate = true;
     }
   }
