@@ -41,11 +41,23 @@ function asphaltTexture() {
     for (let st = 0; st < 22; st++) { x += (r() - 0.5) * 60; y += r() * 42; g.lineTo(x, y); }
     g.stroke();
   }
+  // edge grime: dirt/moss creeping in from the verges (public road feel)
+  for (let y = 0; y < S; y += 4) {
+    const wL = 18 + r() * 30, wR = 18 + r() * 30;
+    g.fillStyle = `rgba(52,58,40,${0.10 + r() * 0.16})`;
+    g.fillRect(0, y, wL, 4);
+    g.fillRect(S - wR, y, wR, 4);
+  }
   // white edge lines
   g.fillStyle = 'rgba(232,232,230,0.9)';
   g.fillRect(16, 0, 12, S); g.fillRect(S - 28, 0, 12, S);
   g.fillStyle = 'rgba(140,140,140,0.25)';        // worn edge of the line
   g.fillRect(28, 0, 4, S); g.fillRect(S - 32, 0, 4, S);
+  // center dashed line — the Nordschleife is a public toll road
+  g.fillStyle = 'rgba(228,228,224,0.78)';
+  g.fillRect(S / 2 - 5, 20, 10, 300);            // 3m dash / 7m gap (tile = 10m)
+  g.fillStyle = 'rgba(150,150,148,0.2)';
+  g.fillRect(S / 2 - 5, 330, 10, 30);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = 16;
@@ -210,14 +222,23 @@ export function buildWorld(scene, track, opts = {}) {
 
   // ---- rubber racing line (darkened driving line hugging corner insides)
   const lineOffset = racingLineOffsets(track);
-  const rubberMat = new THREE.MeshStandardMaterial({
-    map: rubberTexture(), transparent: true, roughness: 1, metalness: 0,
+  const rubTex = rubberTexture();
+  const mkRubMat = op => new THREE.MeshStandardMaterial({
+    map: rubTex, transparent: true, opacity: op, roughness: 1, metalness: 0,
     depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
   });
-  const rubber = buildRibbon(track, -1.05, 1.05, 0.012, rubberMat,
-    { vScale: 14, dFn: i => lineOffset[i] });
-  rubber.renderOrder = 2;
-  scene.add(rubber);
+  // faint wide darkening of the whole driving corridor
+  const wide = buildRibbon(track, -1.5, 1.5, 0.010, mkRubMat(0.42),
+    { vScale: 9, dFn: i => lineOffset[i] });
+  wide.renderOrder = 2;
+  scene.add(wide);
+  // two distinct tire tracks (real rubber lays down in twin stripes)
+  for (const off of [-0.62, 0.62]) {
+    const stripe = buildRibbon(track, off - 0.26, off + 0.26, 0.013, mkRubMat(0.95),
+      { vScale: 14, dFn: i => lineOffset[i] });
+    stripe.renderOrder = 3;
+    scene.add(stripe);
+  }
 
   // ---- Karussell concrete slabs
   addKarussellConcrete(scene, track);
@@ -228,8 +249,8 @@ export function buildWorld(scene, track, opts = {}) {
   addCurbs(scene, track, curbMat, chunks);
 
   // ---- grass aprons + blend-to-DEM skirt
-  const grassMat = new THREE.MeshStandardMaterial({ color: 0x55763c, roughness: 1 });
-  const grassFarMat = new THREE.MeshStandardMaterial({ color: 0x46622f, roughness: 1 });
+  const grassMat = new THREE.MeshStandardMaterial({ color: 0x466132, roughness: 1 });
+  const grassFarMat = new THREE.MeshStandardMaterial({ color: 0x3a5128, roughness: 1 });
   for (const sgn of [-1, 1]) {
     const apron = buildRibbon(track, sgn * ROAD_HALF, sgn * (RAIL_D + 6), 0, grassMat, {
       stride: 2, vScale: 8,
@@ -390,7 +411,7 @@ function addRailPosts(scene, track) {
 // two species, near-track dense pass + wide DEM scatter pass
 function addForest(scene, track, frac = 1) {
   const r = rng(424242);
-  const MAXC = Math.floor(15000 * frac), MAXB = Math.floor(6000 * frac);
+  const MAXC = Math.floor(24000 * frac), MAXB = Math.floor(8500 * frac);
 
   const trunkGeo = new THREE.CylinderGeometry(0.16, 0.26, 3.0, 5);
   const cone1Geo = new THREE.ConeGeometry(2.5, 6.4, 6);
@@ -418,7 +439,7 @@ function addForest(scene, track, frac = 1) {
       if (dx * dx + dz * dz < 13.5 * 13.5) return;
     }
     const gy = worldGround(track, x, z);
-    const s = 0.75 + r() * 1.0;
+    const s = 0.95 + r() * 1.35;
     const broad = r() < 0.28;
     if (broad && kb < MAXB) {
       m4.makeScale(s, s * (0.9 + r() * 0.3), s);
@@ -439,13 +460,22 @@ function addForest(scene, track, frac = 1) {
     }
   };
 
-  // pass 1: dense trackside walls of trees (the Eifel green tunnel)
+  // pass 1: tight tree wall right behind the rails (the Eifel green tunnel)
   for (let i = 0; i < track.n; i += 1) {
     for (const sgn of [-1, 1]) {
-      if (r() < 0.30) continue;
-      const d = sgn * (RAIL_D + 6.5 + r() * 42);
+      if (r() < 0.25) continue;
+      const d = sgn * (RAIL_D + 3.5 + r() * 9);
       track.edge(i, d, 0, v);
-      place(v.x + (r() - 0.5) * 7, v.z + (r() - 0.5) * 7);
+      place(v.x + (r() - 0.5) * 4, v.z + (r() - 0.5) * 4);
+    }
+  }
+  // pass 1b: mid-distance forest mass
+  for (let i = 0; i < track.n; i += 1) {
+    for (const sgn of [-1, 1]) {
+      if (r() < 0.35) continue;
+      const d = sgn * (RAIL_D + 13 + r() * 40);
+      track.edge(i, d, 0, v);
+      place(v.x + (r() - 0.5) * 8, v.z + (r() - 0.5) * 8);
     }
   }
   // pass 2: wide scatter over the DEM (forest masses on the hills)
@@ -454,7 +484,7 @@ function addForest(scene, track, frac = 1) {
     minX = Math.min(minX, track.px[i]); maxX = Math.max(maxX, track.px[i]);
     minZ = Math.min(minZ, track.pz[i]); maxZ = Math.max(maxZ, track.pz[i]);
   }
-  for (let k = 0; k < 9000 && (kc < MAXC || kb < MAXB); k++) {
+  for (let k = 0; k < 14000 && (kc < MAXC || kb < MAXB); k++) {
     const x = minX - 600 + r() * (maxX - minX + 1200);
     const z = minZ - 600 + r() * (maxZ - minZ + 1200);
     place(x, z);
@@ -462,6 +492,28 @@ function addForest(scene, track, frac = 1) {
 
   trunk.count = kt; cone1.count = kc; cone2.count = kc; blob.count = kb;
   scene.add(trunk, cone1, cone2, blob);
+
+  // undergrowth: low bushes hugging the guardrails
+  const MAXU = Math.floor(5200 * frac);
+  const bushGeo = new THREE.IcosahedronGeometry(1.0, 0);
+  const bushMat = new THREE.MeshLambertMaterial({ color: 0x2f4d28 });
+  const bush = new THREE.InstancedMesh(bushGeo, bushMat, MAXU);
+  let ku = 0;
+  for (let i = 0; i < track.n && ku < MAXU; i += 2) {
+    for (const sgn of [-1, 1]) {
+      if (r() < 0.45) continue;
+      const d = sgn * (RAIL_D + 1.2 + r() * 4.5);
+      track.edge(i, d, 0, v);
+      const gy = worldGround(track, v.x, v.z);
+      const s = 0.6 + r() * 1.1;
+      m4.makeScale(s * (1 + r() * 0.6), s * 0.62, s * (1 + r() * 0.6));
+      m4.setPosition(v.x + (r() - 0.5) * 2, gy + 0.3 * s, v.z + (r() - 0.5) * 2);
+      bush.setMatrixAt(ku++, m4);
+      if (ku >= MAXU) break;
+    }
+  }
+  bush.count = ku;
+  scene.add(bush);
 }
 
 function addSigns(scene, track) {

@@ -77,8 +77,13 @@ export class SettingsPanel {
       ...group('auto', [['자동변속', () => this.api.toggle('auto')]]),
     ]));
 
+    card.appendChild(ROW('레이싱 라인', group('line', [
+      ['끔', () => this.api.setLineMode(0)],
+      ['브레이크 가이드만', () => this.api.setLineMode(1)],
+      ['전체 라인', () => this.api.setLineMode(2)],
+    ])));
+
     card.appendChild(ROW('표시', [
-      ...group('line', [['레이싱 라인', () => this.api.toggle('line')]]),
       ...group('ghost', [['고스트', () => this.api.toggle('ghost')]]),
     ]));
 
@@ -130,7 +135,7 @@ export class SettingsPanel {
     this.btns.tc[0].classList.toggle('active', s.tc);
     this.btns.abs[0].classList.toggle('active', s.abs);
     this.btns.auto[0].classList.toggle('active', s.auto);
-    this.btns.line[0].classList.toggle('active', s.line);
+    this._mark('line', s.line);
     this.btns.ghost[0].classList.toggle('active', s.ghost);
     this._mark('traffic', s.traffic >= 12 ? 2 : s.traffic > 0 ? 1 : 0);
     this._mark('preset', s.preset);

@@ -109,7 +109,7 @@ input.onKey = code => {
         (ghost.hasBest ? '' : ' (베스트 랩을 먼저 기록하세요)'));
       break;
     case 'KeyL':
-      hud.flash('레이싱 라인 ' + (raceLine.toggle() ? 'ON' : 'OFF'));
+      hud.flash('레이싱 라인: ' + raceLine.cycleMode());
       break;
     case 'KeyP': case 'Escape':
       settings.toggle();
@@ -141,11 +141,12 @@ const settings = new SettingsPanel({
   getState: () => ({
     car: carId, cam: camMode, ctrl: TOUCH ? input.mode : 'buttons',
     tc: vehicle.tc, abs: vehicle.abs, auto: vehicle.auto,
-    line: raceLine.mesh.visible, ghost: ghost.enabled, preset: atmo.idx,
+    line: raceLine.mode, ghost: ghost.enabled, preset: atmo.idx,
     traffic: traffic.count,
   }),
   setCar,
   setTraffic: n => { traffic.setDensity(n); },
+  setLineMode: m => { raceLine.setMode(m); },
   setCam: i => { camMode = i; carVis.setCameraMode(i); },
   setCtrl: m => { if (TOUCH) input.setMode(m); },
   setPreset: i => atmo.apply(i),
@@ -158,7 +159,6 @@ const settings = new SettingsPanel({
     if (name === 'tc') vehicle.tc = !vehicle.tc;
     else if (name === 'abs') vehicle.abs = !vehicle.abs;
     else if (name === 'auto') { vehicle.auto = !vehicle.auto; if (vehicle.gear < 1) vehicle.gear = 1; }
-    else if (name === 'line') raceLine.toggle();
     else if (name === 'ghost') ghost.enabled = !ghost.enabled;
   },
   resetRecords: () => {
@@ -251,7 +251,7 @@ function updateCamera(dtVis) {
   if (camMode === 2) {
     // chase: spring-damped follow
     const behind = new THREE.Vector3(0, 1.6, 6.2).applyQuaternion(q).add(vehicle.pos);
-    if (!chaseInit) { chasePos.copy(behind); chaseInit = true; }
+    if (!chaseInit || chasePos.distanceTo(behind) > 40) { chasePos.copy(behind); chaseInit = true; }
     chasePos.lerp(behind, Math.min(1, dtVis * 4.5));
     // keep above visual ground (incl. hillsides)
     const gq = track.query(chasePos.x, chasePos.z, {});

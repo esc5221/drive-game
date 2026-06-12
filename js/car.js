@@ -155,6 +155,47 @@ export class CarVisual {
     tail.position.set(0, rearY - 0.20, 2.16);
     this.exterior.add(tail);
 
+    // ---- completion details: arches, splitter, diffuser, rockers, exhaust, fin
+    const W = this.spec.wheels;
+    const archGeo = new THREE.TorusGeometry(W.radius + 0.09, 0.045, 6, 10, Math.PI);
+    for (const [sx, wz] of [[-1, W.fz], [1, W.fz], [-1, W.rz], [1, W.rz]]) {
+      const arch = new THREE.Mesh(archGeo, darkMat);
+      arch.position.set(sx * (W.htF + 0.10), -0.06, wz);
+      arch.rotation.y = Math.PI / 2;
+      this.exterior.add(arch);
+    }
+    const splitter = new THREE.Mesh(new THREE.BoxGeometry(1.58, 0.035, 0.22), darkMat);
+    splitter.position.set(0, -0.325, -2.12);
+    this.exterior.add(splitter);
+    const diffuser = new THREE.Mesh(new THREE.BoxGeometry(1.30, 0.09, 0.28), darkMat);
+    diffuser.position.set(0, -0.295, 2.04);
+    diffuser.rotation.x = -0.18;
+    this.exterior.add(diffuser);
+    for (const fx of [-0.4, 0, 0.4]) {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.10, 0.26), darkMat);
+      fin.position.set(fx, -0.30, 2.05);
+      fin.rotation.x = -0.18;
+      this.exterior.add(fin);
+    }
+    for (const sgn of [-1, 1]) {
+      const rocker = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, 2.35), darkMat);
+      rocker.position.set(sgn * 0.80, -0.315, 0.05);
+      this.exterior.add(rocker);
+    }
+    // exhaust: GT3 = center dual, hatch = side dual
+    const pipeMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, metalness: 0.9, roughness: 0.3 });
+    const pipeGeo = new THREE.CylinderGeometry(0.045, 0.05, 0.10, 10);
+    pipeGeo.rotateX(Math.PI / 2);
+    const pipeXs = V.wing === 'gt' ? [-0.10, 0.10] : [-0.56, 0.56];
+    for (const px of pipeXs) {
+      const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+      pipe.position.set(px, -0.22, 2.14);
+      this.exterior.add(pipe);
+    }
+    const fin2 = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.055, 0.16), darkMat);
+    fin2.position.set(0, roofY + 0.085, 0.85);   // shark-fin antenna
+    this.exterior.add(fin2);
+
     if (V.wing === 'gt') {
       // swan-neck GT wing
       const plank = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.030, 0.34), darkMat);

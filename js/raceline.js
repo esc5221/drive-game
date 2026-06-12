@@ -7,26 +7,30 @@
 // real braking point is.
 import * as THREE from 'three';
 
-// the line hugs corner insides, heavily smoothed into a flowing arc
-// (also used by world.js for the rubber darkening)
+// Proper racing line: iterative path-straightening inside the track width.
+// Each pass pulls every point toward its neighbors' midpoint (constrained to
+// the lateral corridor) — converging on a shortest/least-curvature path that
+// naturally produces out-in-out lines and late apexes.
+// Used by: the guide ribbon, the rubber darkening, the AI traffic, vAllowed.
+let _cache = null;
 export function racingLineOffsets(track) {
+  if (_cache) return _cache;
   const n = track.n;
-  const off = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    off[i] = THREE.MathUtils.clamp(-track.curv[i] * 240, -2.3, 2.3);
-  }
-  for (let p = 0; p < 3; p++) {
-    const out = new Float32Array(n);
-    const half = 30;
-    let acc = 0;
-    for (let k = -half; k <= half; k++) acc += off[(k + n) % n];
+  const d = new Float32Array(n);
+  const lim = 3.1;                              // keep ~1.4m off the edges
+  const px = track.px, pz = track.pz, rx = track.rx, rz = track.rz;
+  for (let iter = 0; iter < 260; iter++) {
     for (let i = 0; i < n; i++) {
-      out[i] = acc / (2 * half + 1);
-      acc += off[(i + half + 1) % n] - off[(i - half + n) % n];
+      const a = (i - 1 + n) % n, b = (i + 1) % n;
+      const mx = (px[a] + rx[a] * d[a] + px[b] + rx[b] * d[b]) * 0.5;
+      const mz = (pz[a] + rz[a] * d[a] + pz[b] + rz[b] * d[b]) * 0.5;
+      let nd = (mx - px[i]) * rx[i] + (mz - pz[i]) * rz[i];
+      if (nd > lim) nd = lim; else if (nd < -lim) nd = -lim;
+      d[i] += (nd - d[i]) * 0.6;
     }
-    off.set(out);
   }
-  return off;
+  _cache = d;
+  return d;
 }
 
 const COL_BASE = [0.30, 0.30, 0.34];
@@ -39,15 +43,34 @@ export class RaceLine {
     this.track = track;
     const n = track.n;
     this.offsets = racingLineOffsets(track);
+    this.mode = +(localStorage.getItem('ns-line') ?? 2);   // 0 off, 1 brake-only, 2 full
 
-    // ---- allowed-speed profile
+    // ---- allowed-speed profile from the LINE's curvature (flatter than the
+    // centerline through corners — that's the whole point of a racing line)
     const MU = 1.12, G = 9.81, VMAX = 80, ABRAKE = 8.8;
+    const lx = new Float32Array(n), lz = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      lx[i] = track.px[i] + track.rx[i] * this.offsets[i];
+      lz[i] = track.pz[i] + track.rz[i] * this.offsets[i];
+    }
     const v = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      const k = Math.abs(track.curv[i]);
+      const a = (i - 1 + n) % n, b = (i + 1) % n;
+      let ax = lx[i] - lx[a], az = lz[i] - lz[a];
+      let bx = lx[b] - lx[i], bz = lz[b] - lz[i];
+      const la = Math.hypot(ax, az) || 1, lb = Math.hypot(bx, bz) || 1;
+      ax /= la; az /= la; bx /= lb; bz /= lb;
+      const cy = az * bx - ax * bz;
+      const k = Math.abs(Math.asin(THREE.MathUtils.clamp(cy, -1, 1))) / ((la + lb) / 2);
       v[i] = k > 1e-4 ? Math.min(VMAX, Math.sqrt(MU * G / k)) : VMAX;
     }
-    for (let i = 2 * n - 1; i >= 0; i--) {   // backward braking pass (wraps)
+    // smooth, then backward braking pass (wraps)
+    for (let p = 0; p < 2; p++) {
+      for (let i = 0; i < n; i++) {
+        v[i] = (v[(i - 1 + n) % n] + v[i] * 2 + v[(i + 1) % n]) / 4;
+      }
+    }
+    for (let i = 2 * n - 1; i >= 0; i--) {
       const a = i % n, b = (i + 1) % n;
       const lim = Math.sqrt(v[b] * v[b] + 2 * ABRAKE * track.step);
       if (v[a] > lim) v[a] = lim;
@@ -75,19 +98,37 @@ export class RaceLine {
     geo.setAttribute('color', this.colorAttr);
     geo.setIndex(idx);
 
-    this.mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    this.material = new THREE.MeshBasicMaterial({
       vertexColors: true, transparent: true, opacity: 0.72,
       depthWrite: false, polygonOffset: true,
       polygonOffsetFactor: -4, polygonOffsetUnits: -4,
-    }));
+    });
+    this.mesh = new THREE.Mesh(geo, this.material);
     this.mesh.renderOrder = 5;
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
+    this._applyMode();
+  }
+
+  _applyMode() {
+    this.mesh.visible = this.mode > 0;
+    // brake-only: additive blending makes black vertices invisible, so only
+    // the red braking zones glow on the road
+    this.material.blending = this.mode === 1 ? THREE.AdditiveBlending : THREE.NormalBlending;
+    this.material.opacity = this.mode === 1 ? 0.9 : 0.72;
+    localStorage.setItem('ns-line', String(this.mode));
+  }
+
+  setMode(m) { this.mode = m; this._applyMode(); }
+  cycleMode() {
+    this.setMode((this.mode + 2) % 3);     // 2(full) -> 1(brake) -> 0(off)
+    return ['끔', '브레이크 가이드', '전체 라인'][this.mode];
   }
 
   // recolor relative to the car every frame (full rewrite — 25k floats, cheap)
   update(carS, carSpeed) {
     if (!this.mesh.visible) return;
+    const brakeOnly = this.mode === 1;
     const n = this.track.n, step = this.track.step;
     const i0 = Math.floor(carS / step) % n;
     const c = this.colors;
@@ -104,20 +145,24 @@ export class RaceLine {
         }
         fade = 1 - 0.75 * (dist / AHEAD);
       } else if (((i0 - i + n) % n) * step <= BEHIND) {
-        fade = 0.4;                          // short dim trail behind
+        fade = 0.4;
       }
-      const r = col[0] * fade + COL_BASE[0] * (1 - fade) * 0.5;
-      const g = col[1] * fade + COL_BASE[1] * (1 - fade) * 0.5;
-      const b = col[2] * fade + COL_BASE[2] * (1 - fade) * 0.5;
+      let r, g, b;
+      if (brakeOnly) {
+        // only braking zones (red/yellow) are drawn; everything else is black
+        const isWarn = col === COL_RED || col === COL_YELLOW;
+        r = isWarn ? col[0] * fade : 0;
+        g = isWarn ? col[1] * fade : 0;
+        b = isWarn ? col[2] * fade : 0;
+      } else {
+        r = col[0] * fade + COL_BASE[0] * (1 - fade) * 0.5;
+        g = col[1] * fade + COL_BASE[1] * (1 - fade) * 0.5;
+        b = col[2] * fade + COL_BASE[2] * (1 - fade) * 0.5;
+      }
       const o = i * 2 * 3;
       c[o] = r; c[o + 1] = g; c[o + 2] = b;
       c[o + 3] = r; c[o + 4] = g; c[o + 5] = b;
     }
     this.colorAttr.needsUpdate = true;
-  }
-
-  toggle() {
-    this.mesh.visible = !this.mesh.visible;
-    return this.mesh.visible;
   }
 }
