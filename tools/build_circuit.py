@@ -18,7 +18,19 @@ CONFIGS = {
         'exclude': r'Kart|Pit Lane|Support Pit|Moto layout',
         'start': 'La Source',
         'step': 5.0,
-        'max_grade': 0.22,      # Eau Rouge/Raidillon ~17% — keep it, cap blowups only
+        'elev_node': 55,        # spline nodes wide enough to bridge SRTM plateaus
+        'max_grade': 0.19,      # gentle backstop; spline already continuous
+        # hand-sculpt Eau Rouge/Raidillon — the free DEM can't capture its
+        # signature compression + steep launch. Absolute elevations (m) at arc
+        # positions, crossfaded into the DEM over `blend` m at each end.
+        # Bottom dip ~390, then ~17% up through Raidillon to the crest, then
+        # the Kemmel straight keeps climbing (rejoining the DEM).
+        'elev_sculpt': {
+            'range': (628, 1015), 'blend': 55,
+            'points': [(628, 391.5), (663, 389.5), (700, 390.5), (735, 393.5),
+                       (770, 401), (805, 409), (840, 415), (880, 418.5),
+                       (950, 419.5), (1015, 419)],
+        },
     },
 }
 
@@ -111,6 +123,67 @@ def smooth_closed(vals, window, passes=1):
     return vals
 
 
+def smooth_elev_spline(ys, step, node_m):
+    """Kill DEM stair-stepping without blurring features: average elevation into
+    coarse nodes (~node_m apart), then closed Catmull-Rom back to per-point. The
+    raw open DEM returns quantized plateaus + jumps; this restores a continuous
+    profile that keeps the real climb location/magnitude."""
+    n = len(ys)
+    ns = max(2, round(node_m / step))
+    m = max(4, round(n / ns))
+    ns = n / m
+    nodes = []
+    for k in range(m):
+        c = k * ns
+        i0, i1 = int(c - ns / 2), int(c + ns / 2)
+        s = cnt = 0
+        for i in range(i0, i1 + 1):
+            s += ys[i % n]; cnt += 1
+        nodes.append(s / cnt)
+
+    def cr(p0, p1, p2, p3, t):
+        t2, t3 = t * t, t * t * t
+        return 0.5 * (2*p1 + (-p0+p2)*t + (2*p0-5*p1+4*p2-p3)*t2 + (-p0+3*p1-3*p2+p3)*t3)
+
+    out = []
+    for i in range(n):
+        f = i / ns                  # node-space position
+        k = int(math.floor(f)) % m
+        t = f - math.floor(f)
+        out.append(cr(nodes[(k-1) % m], nodes[k], nodes[(k+1) % m], nodes[(k+2) % m], t))
+    return out
+
+
+def apply_sculpt(ys, step, sc):
+    """Override a region's elevation with hand-authored anchors, crossfaded into
+    the DEM profile over `blend` m at each end so it joins seamlessly."""
+    (r0, r1), blend = sc['range'], sc['blend']
+    anchors = sc['points']
+    arcs = [a for a, _ in anchors]; yv = [y for _, y in anchors]
+
+    def target(s):
+        if s <= arcs[0]: return yv[0]
+        if s >= arcs[-1]: return yv[-1]
+        for k in range(1, len(arcs)):
+            if s <= arcs[k]:
+                t = (s - arcs[k - 1]) / (arcs[k] - arcs[k - 1])
+                return yv[k - 1] + (yv[k] - yv[k - 1]) * t
+        return yv[-1]
+
+    n = len(ys); out = list(ys)
+    for i in range(n):
+        s = i * step
+        if not (r0 - blend <= s <= r1 + blend):
+            continue
+        w = 1.0
+        if s < r0: w = (s - (r0 - blend)) / blend
+        elif s > r1: w = ((r1 + blend) - s) / blend
+        w = max(0.0, min(1.0, w))
+        w = w * w * (3 - 2 * w)                  # smoothstep crossfade
+        out[i] = ys[i] * (1 - w) + target(s) * w
+    return smooth_closed(out, 5, 1)
+
+
 def slope_limit(ys, step, max_grade):
     n = len(ys); mx = step * max_grade
     ys = list(ys)
@@ -188,7 +261,13 @@ def main(cid):
     ll = [(lat0 - z/ky, lon0 + x/kx) for x, z in zip(xs, zs)]
     print('fetching elevation...')
     ys = fetch_elevation(ll)
-    ys = smooth_closed(ys, 9, passes=3)
+    if cfg.get('elev_node'):
+        ys = smooth_elev_spline(ys, step, cfg['elev_node'])
+    else:
+        sw, sp = cfg.get('elev_smooth', (9, 3))
+        ys = smooth_closed(ys, sw, passes=sp)
+    if cfg.get('elev_sculpt'):
+        ys = apply_sculpt(ys, step, cfg['elev_sculpt'])
     g0 = max(abs(ys[(i+1) % n]-ys[i]) for i in range(n)) / step
     if cfg.get('max_grade'):
         ys = slope_limit(ys, step, cfg['max_grade'])

@@ -472,15 +472,23 @@ function addForest(scene, track, frac = 1) {
     const z = minZ - 600 + r() * (maxZ - minZ + 1200);
     place(x, z);
   }
-  // undergrowth bushes hugging the guardrails
+  // undergrowth bushes hugging the guardrails. Proximity-checked: where the
+  // track loops back near itself (e.g. the practice start/finish), a bush
+  // placed beside one section must not land on a different, closer section.
+  const MIN_CLEAR = RAIL_D - 0.5;     // ~6.7 m — just outside the rails
   let ku = 0;
   for (let i = 0; i < track.n && ku < MAXU; i += 2) {
     for (const sgn of [-1, 1]) {
       if (r() < 0.45) continue;
       const d = sgn * (RAIL_D + 1.2 + r() * 4.5);
       track.edge(i, d, 0, v);
-      const gy = worldGround(track, v.x, v.z);
-      bushes.push([v.x + (r() - 0.5) * 2, gy, v.z + (r() - 0.5) * 2, 0.6 + r() * 1.1, r()]);
+      const bx = v.x + (r() - 0.5) * 2, bz = v.z + (r() - 0.5) * 2;
+      const ni = track.nearestIndex(bx, bz);
+      if (ni >= 0) {
+        const dx = track.px[ni] - bx, dz = track.pz[ni] - bz;
+        if (dx * dx + dz * dz < MIN_CLEAR * MIN_CLEAR) continue;  // on another section
+      }
+      bushes.push([bx, worldGround(track, bx, bz), bz, 0.6 + r() * 1.1, r()]);
       if (++ku >= MAXU) break;
     }
   }
