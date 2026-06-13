@@ -178,7 +178,7 @@ class EngineProcessor extends AudioWorkletProcessor {
 
       let intakeNoise = this.intakeNoiseLP.get(2 * this._rnd() - 1);
       if (rpm < 25) intakeNoise = 0;
-      intakeNoise *= 0.3 + 0.7 * this._load;              // induction louder on power
+      intakeNoise *= 0.06 + 0.94 * this._load;            // near-silent intake at idle
       const crank = this.crankshaftLP.get(0.25 * this._rnd());
 
       let block = 0;

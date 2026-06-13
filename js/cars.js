@@ -34,10 +34,10 @@ export const CARS = {
     // boomy note, lots of overrun crackle.
     engine_model: {
       cyl: 4, intakeLen: 100, exhaustLen: 120, extractorLen: 100,
-      straightPipeLen: 150, mufflerElements: [12, 18, 24, 30], mufflerAction: 0.30,
-      ignitionTime: 0.018, intakeOpen: 0.25, intakeClosed: 0.95,
+      straightPipeLen: 150, mufflerElements: [9, 14, 19, 26], mufflerAction: 0.16,
+      ignitionTime: 0.018, intakeOpen: 0.25, intakeClosed: 0.9,
       exhaustOpen: 0.25, exhaustClosed: 0.95,
-      outletGain: 1.1, intakeMix: 0.9, blockMix: 1.0, decelPops: 1.0, level: 0.6,
+      outletGain: 1.1, intakeMix: 0.6, blockMix: 1.05, decelPops: 1.0, level: 0.6,
     },
     visual: { color: 0x1f4f9e, accent: 0xc8102e, wing: 'lip', roofY: 0.64, rearY: 0.36 },
     dialMax: 8, dialRed: 7, dialSpeed: 300,
@@ -75,10 +75,10 @@ export const CARS = {
     // revvy howl, strong intake, little overrun pop.
     engine_model: {
       cyl: 6, intakeLen: 85, exhaustLen: 70, extractorLen: 80,
-      straightPipeLen: 95, mufflerElements: [8, 12, 16, 20], mufflerAction: 0.15,
-      ignitionTime: 0.012, intakeOpen: 0.22, intakeClosed: 0.95,
+      straightPipeLen: 95, mufflerElements: [7, 11, 15, 19], mufflerAction: 0.12,
+      ignitionTime: 0.012, intakeOpen: 0.22, intakeClosed: 0.9,
       exhaustOpen: 0.22, exhaustClosed: 0.95,
-      outletGain: 1.0, intakeMix: 1.2, blockMix: 0.9, decelPops: 0.3, level: 0.55,
+      outletGain: 1.0, intakeMix: 0.9, blockMix: 0.95, decelPops: 0.3, level: 0.55,
     },
     visual: { color: 0xf2c200, accent: 0x111111, wing: 'gt', roofY: 0.58, rearY: 0.40 },
     dialMax: 10, dialRed: 9, dialSpeed: 340,
