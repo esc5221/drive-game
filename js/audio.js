@@ -22,15 +22,10 @@ export class CarAudio {
     this.master.gain.value = 0.5;
     this.master.connect(ctx.destination);
 
-    // ---- engine: procedural firing-pulse worklet (loaded async).
-    // Bus: worklet -> engineGain -> master. Until the module resolves the
-    // engine is silent; everything else (tires/wind) works immediately.
+    // engine bus (worklet attaches here later, if available)
     this.engineGain = ctx.createGain();
     this.engineGain.gain.value = 0.0;
     this.engineGain.connect(this.master);
-    ctx.audioWorklet.addModule(new URL('./engine-processor.js', import.meta.url))
-      .then(() => { this.engineReady = true; if (this._engineSpec) this._buildEngine(this._engineSpec); })
-      .catch(() => { /* worklet unsupported — engine stays silent, rest plays */ });
 
     // shared noise buffer
     const len = ctx.sampleRate * 2;
@@ -72,6 +67,18 @@ export class CarAudio {
     this.turbo = { o: tw, g: twG };
     this._prevThr = 0;
     this._popCool = 0;
+
+    // ---- engine: procedural firing-pulse worklet, loaded LAST and guarded.
+    // AudioWorklet requires a secure context (https or localhost); on plain
+    // http (e.g. a LAN IP) ctx.audioWorklet is undefined — degrade to a
+    // silent engine while tires/wind/turbo keep working.
+    if (ctx.audioWorklet && ctx.audioWorklet.addModule) {
+      ctx.audioWorklet.addModule(new URL('./engine-processor.js', import.meta.url))
+        .then(() => { this.engineReady = true; if (this._engineSpec) this._buildEngine(this._engineSpec); })
+        .catch(() => { /* unsupported — engine stays silent */ });
+    } else {
+      console.warn('[audio] AudioWorklet unavailable (needs https or localhost) — engine muted');
+    }
   }
 
   // (re)build the engine worklet node for a car spec's engine_model

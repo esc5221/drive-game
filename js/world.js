@@ -389,7 +389,7 @@ function addCurbs(scene, track, mat, chunks) {
 
 function addRailPosts(scene, track) {
   const n = track.n, every = 4;
-  const count = Math.floor(n / every) * 2;
+  const count = Math.ceil(n / every) * 2 + 2;   // loop runs ceil(n/every) steps x2 sides
   const geo = new THREE.BoxGeometry(0.10, 0.85, 0.14);
   const mat = new THREE.MeshStandardMaterial({ color: 0x787e85, metalness: 0.6, roughness: 0.5 });
   const inst = new THREE.InstancedMesh(geo, mat, count);
