@@ -60,14 +60,25 @@ function coarseDist(x, z) {
 
 export function demHeight(x, z) {
   let y = rawDem(x, z);
-  if (!_track || !_dem) return y;   // procedural ground already follows the track
-  // cell-center distance minus half diagonal bounds the true distance
-  if (coarseDist(x, z) > 200) return y;
-  const ni = _track.nearestIndex(x, z, 6);      // search up to ~150 m out
+  if (!_track) return y;
+  // corridor carving — terrain may never rise above a cone from the road, so
+  // it can't poke up onto the track. Real DEM (Nürburgring): tight cone past a
+  // coarse distance gate. Procedural (Spa/practice): keep ground below the road
+  // within ~55 m, hills only emerge gently beyond.
+  let ni;
+  if (_dem) {
+    if (coarseDist(x, z) > 200) return y;
+    ni = _track.nearestIndex(x, z, 6);
+  } else {
+    ni = _track.nearestIndex(x, z, 10);
+  }
   if (ni < 0) return y;
   const dx = _track.px[ni] - x, dz = _track.pz[ni] - z;
   const dist = Math.hypot(dx, dz);
-  const ceiling = _track.py[ni] - 1.6 + Math.max(0, dist - 24) * 0.55;
+  const clear = _dem ? 1.6 : 1.2;
+  const start = _dem ? 24 : 80;     // procedural: keep ground below road within 80 m
+  const slope = _dem ? 0.55 : 0.30;
+  const ceiling = _track.py[ni] - clear + Math.max(0, dist - start) * slope;
   return Math.min(y, ceiling);
 }
 

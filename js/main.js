@@ -4,7 +4,7 @@ import { TRACK as T_NORD } from './track_data.js';
 import { TRACK as T_SPA } from './tracks/spa.js';
 import { TRACK as T_PRAC } from './tracks/practice.js';
 import { DEM } from './dem_data.js';
-import { setDem } from './terrain.js';
+import { setDem, demHeight } from './terrain.js';
 import { trackMeta } from './tracks/index.js';
 import { showMenu } from './menu.js';
 import { Track } from './track.js';
@@ -418,3 +418,4 @@ window.__vehicle = vehicle;   // debug / test handle
 window.__track = track;
 window.__renderer = renderer;
 window.__audio = audio;
+window.__demHeight = demHeight;
