@@ -50,6 +50,16 @@ export class CarAudio {
     this.roar = noiseSrc('lowpass', 280, 0.7);       // asphalt rumble
     this.grass = noiseSrc('lowpass', 220, 0.8);
     this.scrapeN = noiseSrc('highpass', 1800, 1.0);
+    this.brakeRub = noiseSrc('bandpass', 1400, 1.6);  // pad-on-disc friction hiss
+
+    // brake squeal: a high tonal cry (two detuned partials) gated by braking
+    this.bsOsc1 = ctx.createOscillator(); this.bsOsc1.type = 'sawtooth'; this.bsOsc1.frequency.value = 3100;
+    this.bsOsc2 = ctx.createOscillator(); this.bsOsc2.type = 'sawtooth'; this.bsOsc2.frequency.value = 3170;
+    this.bsBP = ctx.createBiquadFilter(); this.bsBP.type = 'bandpass'; this.bsBP.frequency.value = 3200; this.bsBP.Q.value = 7;
+    this.bsGain = ctx.createGain(); this.bsGain.gain.value = 0;
+    this.bsOsc1.connect(this.bsBP); this.bsOsc2.connect(this.bsBP);
+    this.bsBP.connect(this.bsGain); this.bsGain.connect(this.master);
+    this.bsOsc1.start(); this.bsOsc2.start();
 
     // rhythmic curb strikes: square LFO amplitude-modulates a thump band
     this.curb = noiseSrc('lowpass', 240, 1.0);
@@ -123,13 +133,12 @@ export class CarAudio {
       this.engineNode.parameters.get('rpm').setTargetAtTime(rpm, t, 0.02);
       this.engineNode.parameters.get('throttle').setTargetAtTime(thr, t, 0.03);
       this.engineNode.parameters.get('redline').value = redline;
-      // overall engine presence rises with load + revs
-      this.engineGain.gain.setTargetAtTime(
-        (this._engineLevel || 0.5) * (0.55 + thr * 0.3 + rpmF * 0.15), t, T);
+      // worklet already applies per-car level; this is just a presence trim
+      this.engineGain.gain.setTargetAtTime(1.5 * (0.7 + thr * 0.25 + rpmF * 0.1), t, T);
     }
-    // exhaust rasp still layered on top of the waveguide for extra bite
+    // extra exhaust bite layered on top of the waveguide
     this.rasp.f.frequency.setTargetAtTime(Math.min(4200, rpm / 60 * P.cyl), t, T);
-    this.rasp.g.gain.setTargetAtTime(P.rasp * (0.2 + thr * 0.8) * rpmF * 0.14, t, T);
+    this.rasp.g.gain.setTargetAtTime(P.rasp * (0.2 + thr * 0.8) * rpmF * 0.1, t, T);
 
     // ---- wind / speed
     const v = Math.abs(spd);
@@ -156,6 +165,23 @@ export class CarAudio {
     this.roar.g.gain.setTargetAtTime(onRoad ? Math.min(0.10, v * 0.0011) : 0, t, 0.15);
     this.roar.f.frequency.setTargetAtTime(180 + v * 2.2, t, 0.15);
 
+    // ---- brakes: pad friction hiss + disc squeal (loudest at low-mid speed,
+    // the way real brakes squeal as you slow to a stop)
+    const brake = vehicle.ctrl.brake;
+    const braking = brake > 0.12 && v > 0.6;
+    this.brakeRub.g.gain.setTargetAtTime(braking ? Math.min(0.10, brake * 0.10) : 0, t, 0.04);
+    this.brakeRub.f.frequency.setTargetAtTime(900 + v * 6, t, 0.08);
+    // squeal: needs firm pressure, peaks ~10-40 km/h, fades at high speed & crawl
+    const sp = v;
+    const speedWin = Math.max(0, Math.min(1, (sp - 1.5) / 4)) * Math.max(0, 1 - sp / 22);
+    let squealAmt = brake > 0.35 ? (brake - 0.35) * 1.5 * speedWin : 0;
+    if (vehicle._absActive) squealAmt *= 0.4 + 0.6 * ((performance.now() * 0.02 | 0) % 2);  // ABS chops it
+    this.bsGain.gain.setTargetAtTime(Math.min(0.16, squealAmt * 0.16), t, 0.03);
+    const bf = 2600 + sp * 70;
+    this.bsBP.frequency.setTargetAtTime(bf, t, 0.06);
+    this.bsOsc1.frequency.setTargetAtTime(bf * 0.97, t, 0.06);
+    this.bsOsc2.frequency.setTargetAtTime(bf * 1.02, t, 0.06);
+
     // rhythmic curb: strike rate = speed / 2m stripe pitch
     if (onCurb && v > 3) {
       this.curbLfo.frequency.setTargetAtTime(Math.max(4, v / 2), t, 0.05);
@@ -170,22 +196,30 @@ export class CarAudio {
     this.grass.g.gain.setTargetAtTime(!onRoad && v > 2 ? Math.min(0.4, v / 40 + 0.12) : 0, t, 0.08);
     this.scrapeN.g.gain.setTargetAtTime(vehicle.scrape > 0.05 ? Math.min(0.5, vehicle.scrape * 0.5) : 0, t, 0.03);
 
-    // ---- turbo character (profile-gated)
+    // ---- turbo character (profile-gated). Overrun pops now come from the
+    // engine worklet (decelPops), so only the turbo blow-off lives here.
     if (P.turbo) {
       this.turbo.o.frequency.setTargetAtTime(1400 + rpm * 0.45, t, 0.08);
       this.turbo.g.gain.setTargetAtTime(thr * rpmF * rpmF * 0.045, t, 0.1);
       if (this._prevThr > 0.5 && thr < 0.1 && rpm > 3200) {
-        this._burst('bandpass', 2600, 1.6, 0.22, 0.4);
+        this._burst('bandpass', 2600, 1.6, 0.22, 0.4);   // blow-off "psssh"
       }
     } else {
       this.turbo.g.gain.setTargetAtTime(0, t, 0.1);
     }
-    // overrun pops/crackle
-    this._popCool -= dt;
-    if (thr < 0.05 && rpmF > 0.45 && this._popCool <= 0 && Math.random() < dt * 6 * P.pops) {
-      this._burst('lowpass', 380, 1.0, 0.30 * P.pops + 0.1, 0.06 + Math.random() * 0.05);
-      this._popCool = 0.09;
-    }
     this._prevThr = thr;
+  }
+
+  // one-shot enveloped noise burst (turbo blow-off)
+  _burst(filterType, freq, q, gain, dur) {
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource(); src.buffer = this._noiseBuf; src.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = filterType; f.frequency.value = freq; f.Q.value = q;
+    const g = ctx.createGain();
+    const t = ctx.currentTime;
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(); src.stop(t + dur + 0.05);
   }
 }

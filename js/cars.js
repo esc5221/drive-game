@@ -30,13 +30,14 @@ export const CARS = {
       gains:  [0.50, 0.30, 0.08, 0.12, 0.04, 0.22],
       tone: 900, rasp: 0.30, pops: 0.35, intake: 0.5, sub: 0.18,
     },
-    // procedural engine worklet — turbo 4-cyl: deep boomy idle, raspy on boost,
-    // overrun crackle. Low muffler dominates idle; header adds the rasp.
+    // Antonio waveguide model — turbo 4-cyl: longer exhaust/big muffler = deep
+    // boomy note, lots of overrun crackle.
     engine_model: {
-      cyl: 4, combAttack: 0.0006, combDecay: 0.0028, combNoise: 0.6,
-      headerHz: 320, headerR: 0.5, mufflerHz: 72, mufflerR: 0.62, mufflerMix: 0.85,
-      intakeHz: 200, intakeR: 0.4, intakeGain: 0.5, mechGain: 0.1,
-      idleLope: 0.1, decelPops: 0.8, loopLP: 0.55, exhaustGain: 1.15, level: 0.62,
+      cyl: 4, intakeLen: 100, exhaustLen: 120, extractorLen: 100,
+      straightPipeLen: 150, mufflerElements: [12, 18, 24, 30], mufflerAction: 0.30,
+      ignitionTime: 0.018, intakeOpen: 0.25, intakeClosed: 0.95,
+      exhaustOpen: 0.25, exhaustClosed: 0.95,
+      outletGain: 1.1, intakeMix: 0.9, blockMix: 1.0, decelPops: 1.0, level: 0.6,
     },
     visual: { color: 0x1f4f9e, accent: 0xc8102e, wing: 'lip', roofY: 0.64, rearY: 0.36 },
     dialMax: 8, dialRed: 7, dialSpeed: 300,
@@ -70,13 +71,14 @@ export const CARS = {
       gains:  [0.46, 0.14, 0.30, 0.20, 0.12, 0.24],
       tone: 1500, rasp: 0.55, pops: 0.55, intake: 0.7, sub: 0.10,
     },
-    // flat-6 NA: smooth even firing, bright header, metallic top-end howl,
-    // less muffler (open exhaust), little overrun pop
+    // Antonio waveguide model — flat-6 NA: short exhaust + open muffler = high
+    // revvy howl, strong intake, little overrun pop.
     engine_model: {
-      cyl: 6, combAttack: 0.0004, combDecay: 0.0015, combNoise: 0.38,
-      headerHz: 520, headerR: 0.58, mufflerHz: 130, mufflerR: 0.45, mufflerMix: 0.45,
-      intakeHz: 320, intakeR: 0.5, intakeGain: 0.85, mechGain: 0.4,
-      idleLope: 0.04, decelPops: 0.3, loopLP: 0.42, exhaustGain: 1.0, level: 0.55,
+      cyl: 6, intakeLen: 85, exhaustLen: 70, extractorLen: 80,
+      straightPipeLen: 95, mufflerElements: [8, 12, 16, 20], mufflerAction: 0.15,
+      ignitionTime: 0.012, intakeOpen: 0.22, intakeClosed: 0.95,
+      exhaustOpen: 0.22, exhaustClosed: 0.95,
+      outletGain: 1.0, intakeMix: 1.2, blockMix: 0.9, decelPops: 0.3, level: 0.55,
     },
     visual: { color: 0xf2c200, accent: 0x111111, wing: 'gt', roofY: 0.58, rearY: 0.40 },
     dialMax: 10, dialRed: 9, dialSpeed: 340,
