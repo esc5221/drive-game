@@ -30,10 +30,13 @@ export const CARS = {
       gains:  [0.50, 0.30, 0.08, 0.12, 0.04, 0.22],
       tone: 900, rasp: 0.30, pops: 0.35, intake: 0.5, sub: 0.18,
     },
-    // procedural engine worklet model — turbo 4-cyl: deep raspy boom, lopey
+    // procedural engine worklet — turbo 4-cyl: deep boomy idle, raspy on boost,
+    // overrun crackle. Low muffler dominates idle; header adds the rasp.
     engine_model: {
-      cyl: 4, combDecay: 0.0024, combNoise: 0.62, intakeGain: 0.55, mechGain: 0.12,
-      idleLope: 0.07, exhaustGain: 1.1, level: 0.6, bright: 0.85, body: 0.12, bodyHz: 150,
+      cyl: 4, combAttack: 0.0006, combDecay: 0.0028, combNoise: 0.6,
+      headerHz: 320, headerR: 0.5, mufflerHz: 72, mufflerR: 0.62, mufflerMix: 0.85,
+      intakeHz: 200, intakeR: 0.4, intakeGain: 0.5, mechGain: 0.1,
+      idleLope: 0.1, decelPops: 0.8, loopLP: 0.55, exhaustGain: 1.15, level: 0.62,
     },
     visual: { color: 0x1f4f9e, accent: 0xc8102e, wing: 'lip', roofY: 0.64, rearY: 0.36 },
     dialMax: 8, dialRed: 7, dialSpeed: 300,
@@ -67,10 +70,13 @@ export const CARS = {
       gains:  [0.46, 0.14, 0.30, 0.20, 0.12, 0.24],
       tone: 1500, rasp: 0.55, pops: 0.55, intake: 0.7, sub: 0.10,
     },
-    // flat-6 NA: tight even firing, bright metallic formants, screaming top end
+    // flat-6 NA: smooth even firing, bright header, metallic top-end howl,
+    // less muffler (open exhaust), little overrun pop
     engine_model: {
-      cyl: 6, combDecay: 0.0013, combNoise: 0.40, intakeGain: 0.85, mechGain: 0.38,
-      idleLope: 0.03, exhaustGain: 1.0, level: 0.52, bright: 1.3, body: 0.1, bodyHz: 300,
+      cyl: 6, combAttack: 0.0004, combDecay: 0.0015, combNoise: 0.38,
+      headerHz: 520, headerR: 0.58, mufflerHz: 130, mufflerR: 0.45, mufflerMix: 0.45,
+      intakeHz: 320, intakeR: 0.5, intakeGain: 0.85, mechGain: 0.4,
+      idleLope: 0.04, decelPops: 0.3, loopLP: 0.42, exhaustGain: 1.0, level: 0.55,
     },
     visual: { color: 0xf2c200, accent: 0x111111, wing: 'gt', roofY: 0.58, rearY: 0.40 },
     dialMax: 10, dialRed: 9, dialSpeed: 340,
