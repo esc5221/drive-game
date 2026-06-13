@@ -158,7 +158,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.level = o.level ?? 0.5;
     this.decelPops = o.decelPops ?? 0.5;
 
-    this._load = 0; this._popEnv = 0; this._outLP = 0;
+    this._load = 0; this._popEnv = 0; this._outLP = 0; this._lift = 0;
     let s = 20240609;
     this._rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
 
@@ -206,9 +206,14 @@ class EngineProcessor extends AudioWorkletProcessor {
       const outletSound = this.outlet.outputRight;
       this.muffler.update(this.straightPipe.outputRight, this.outlet.outputLeft);
 
-      // overrun pops/bangs (Elantra-N crackle): random sharp bursts off-throttle
-      if (overrun && this._rnd() < 0.0009 * this.decelPops * (rpm / redline)) {
-        this._popEnv = 0.8 + this._rnd() * 0.7;
+      // overrun crackle (Elantra-N "ta...ta-ta"): bursts right after lifting,
+      // then sparse — NOT a constant machine-gun stream. _lift = seconds spent
+      // in overrun; the crackle rate decays after the lift transient.
+      this._lift = overrun ? Math.min(2, this._lift + 1 / SR) : 0;
+      const burst = Math.exp(-this._lift * 2.5);              // strong ~first 0.6s
+      const rate = (1.2 + 6 * burst) * this.decelPops;        // pops per second
+      if (overrun && this._rnd() < rate / SR) {
+        this._popEnv = 0.5 + this._rnd() * 0.5;
       }
       this._popEnv *= 0.9985;
       const pop = this._popEnv * (this._rnd() * 2 - 1);
