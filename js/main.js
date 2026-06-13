@@ -179,8 +179,15 @@ const settings = new SettingsPanel({
     ghost.best = null;
     hud.flash('기록 초기화 완료');
   },
-  setPaused: v => { paused = v; },
+  setPaused: v => { paused = v; updateAudioGate(); },
 });
+
+// mute audio when paused (settings open) or when the tab/app is backgrounded
+function updateAudioGate() {
+  audio.setActive(!paused && !document.hidden);
+}
+document.addEventListener('visibilitychange', updateAudioGate);
+addEventListener('pagehide', () => audio.setActive(false));
 
 // haptics (mobile): curb buzz, rail scrape, gear shifts
 let lastHaptic = 0;

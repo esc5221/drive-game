@@ -19,8 +19,11 @@ export class CarAudio {
     const ctx = this.ctx = new (window.AudioContext || window.webkitAudioContext)();
 
     this.master = ctx.createGain();
+    this.masterTarget = 0.5;
     this.master.gain.value = 0.5;
     this.master.connect(ctx.destination);
+    this._active = true;
+    this._suspendTimer = null;
 
     // engine bus (worklet attaches here later, if available)
     this.engineGain = ctx.createGain();
@@ -106,6 +109,24 @@ export class CarAudio {
     this.engineNode.connect(this.engineGain);
     this._engineLevel = m.level ?? 0.5;
     this._engineSpec = spec;
+  }
+
+  // mute + suspend when paused / tab or app backgrounded; resume on return.
+  // Gain ramps to avoid clicks; the context is suspended shortly after so the
+  // worklet stops too (silence + no CPU/battery in the background).
+  setActive(on) {
+    if (!this.started) return;
+    this._active = on;
+    if (this._suspendTimer) { clearTimeout(this._suspendTimer); this._suspendTimer = null; }
+    if (on) {
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      this.master.gain.setTargetAtTime(this.masterTarget, this.ctx.currentTime, 0.03);
+    } else {
+      this.master.gain.setTargetAtTime(0, this.ctx.currentTime, 0.02);
+      this._suspendTimer = setTimeout(() => {
+        if (!this._active && this.ctx.state === 'running') this.ctx.suspend();
+      }, 160);
+    }
   }
 
   // called by main when the car changes
