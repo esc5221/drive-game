@@ -302,9 +302,10 @@ function updateCamera(dtVis) {
     headOffset.copy(eyeLocal).add(headLean);
     headPos.copy(headOffset).applyQuaternion(q).add(vehicle.pos);
     camera.position.copy(headPos);
-    // cabin vibration: suspension activity + speed buzz + ABS shudder + landing slam
+    // cabin vibration: suspension activity + speed buzz + ABS shudder + landing slam.
+    // Speed buzz is kept subtle so the rear-view mirror stays readable at speed.
     const v2 = vehicle.speed * vehicle.speed;
-    let vib = Math.min(0.010, vehicle.suspActivity * 0.0011 + v2 * 1.6e-6);
+    let vib = Math.min(0.006, vehicle.suspActivity * 0.0011 + v2 * 5e-7);
     if (vehicle._absActive && vehicle.ctrl.brake > 0.3) vib += 0.003;
     camera.position.y += (Math.random() - 0.5) * vib + vehicle.landImpact * -0.035;
     camera.position.x += (Math.random() - 0.5) * vib * 0.6;
