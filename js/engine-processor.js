@@ -54,7 +54,8 @@ class Waveguide {
 class Cylinder {
   constructor(cfg) {
     this.index = cfg.index;
-    this.cylinderWaveguide = new Waveguide(10, 0.75, 0.75);
+    this.cylinderWaveguide = new Waveguide(10, cfg.cylRefl, cfg.cylRefl);
+    this.pistonAmp = cfg.pistonAmp;
     this.intakeWaveguide = new Waveguide(cfg.intakeLen, 0.01, cfg.intakeOpen);
     this.exhaustWaveguide = new Waveguide(cfg.exhaustLen, cfg.exhaustClosed, 0.01);
     this.extractorWaveguide = new Waveguide(cfg.extractorLen, 0.01, 0.01);
@@ -80,7 +81,10 @@ class Cylinder {
     this._updateReflections();
 
     intakeNoise *= this.intakeValve;
-    const amp = piston * 1.5 + ignition * 5.0;
+    // piston (mechanical) excitation scaled down — at high amplitude it rings
+    // the short cylinder waveguide (~2.4kHz) into a metallic clatter that's
+    // exposed on overrun (no combustion to mask it).
+    const amp = piston * this.pistonAmp + ignition * 5.0;
 
     const exhaustOutRight = this.exhaustWaveguide.outputRight;
     const extractorOutLeft = this.extractorWaveguide.outputLeft;
@@ -133,6 +137,8 @@ class EngineProcessor extends AudioWorkletProcessor {
       intakeOpen: o.intakeOpen ?? 0.25, intakeClosed: o.intakeClosed ?? 0.95,
       exhaustOpen: o.exhaustOpen ?? 0.25, exhaustClosed: o.exhaustClosed ?? 0.95,
       ignitionTime: o.ignitionTime ?? 0.016,
+      cylRefl: o.cylRefl ?? 0.62,        // was 0.75 — broaden the ~2.4kHz cylinder resonance
+      pistonAmp: o.pistonAmp ?? 0.9,     // was 1.5 — gentler mechanical excitation
     };
     this.cylinders = [];
     for (let i = 0; i < cyl; i++) this.cylinders.push(new Cylinder({ ...cfg, index: i }));
@@ -152,7 +158,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.level = o.level ?? 0.5;
     this.decelPops = o.decelPops ?? 0.5;
 
-    this._load = 0; this._popEnv = 0;
+    this._load = 0; this._popEnv = 0; this._outLP = 0;
     let s = 20240609;
     this._rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
 
@@ -210,7 +216,12 @@ class EngineProcessor extends AudioWorkletProcessor {
       const blockFiltered = this.engineLP.get(block) * this.blockMix;
       let y = blockFiltered + intakeSound * this.intakeMix
             + (outletSound + pop) * this.outletGain;
-      out[i] = Math.tanh(y * 0.6 * this.level * 2) * 0.5;
+      // load-dependent brightness: on-throttle keeps the bright combustion edge;
+      // off-throttle (overrun) closes the top so the mechanical cylinder
+      // resonance (~2.4kHz) doesn't ring out as a metallic clatter.
+      const cut = (1100 + this._load * 5200) / SR * 2;
+      this._outLP += (y - this._outLP) * Math.min(1, cut);
+      out[i] = Math.tanh(this._outLP * 0.6 * this.level * 2) * 0.5;
     }
     for (let ch = 1; ch < outputs[0].length; ch++) outputs[0][ch].set(out);
     return true;
