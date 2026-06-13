@@ -12,31 +12,41 @@ Y = 80.0  # flat
 # control points (x, z), counter-clockwise closed loop, with named features.
 # Generous spacing keeps Catmull-Rom radii gentle; only the hairpin is tight.
 # (name marks the feature that STARTS near this control point)
-# Deliberately demanding: a tight hairpin, a real continuous slalom, a skidpad
-# loop. Only the FINAL corner is widened so it flows onto the straight instead
-# of the old cramped 3 m flick.
+# A driving-school circuit: a short straight then one of every corner type to
+# practise. CCW; travel never reverses; the final corner sweeps back onto the
+# straight tangentially (clean closure, no cramped flick).
 CTRL = [
-    (0, 0, '메인 직선'),        # long straight — accel + heavy braking
-    (170, 0, None),
-    (340, 0, None),
-    (470, 2, '헤어핀'),         # tight 180
-    (545, 25, None),
-    (555, 80, None),
-    (505, 120, None),
-    (435, 120, '슬라럼'),       # continuous slalom — fast left-right-left-right
-    (375, 92, None),
-    (315, 140, None),
-    (250, 92, None),
-    (185, 140, None),
-    (120, 108, '스키드패드'),    # big constant-radius loop, down the left
-    (35, 140, None),
-    (-60, 115, None),
-    (-130, 50, None),
-    (-150, -40, '마지막 코너'),   # wide flowing final corner (softened)...
-    (-120, -100, None),
-    (-65, -95, None),
-    (-75, -6, None),           # ...exits onto a short straight, tangent to the
-    (-35, -3, None),           #    main straight (no tight flick at the line)
+    (0, 0, '직선'),            # short straight — accel + braking
+    (130, 0, None),
+    (250, 6, None),
+    (335, 45, '헤어핀'),        # tight 180 hairpin
+    (335, 105, None),
+    (260, 125, None),
+    (185, 100, None),
+    (120, 128, '에스'),         # quick left-right-left esses / chicane
+    (55, 95, None),
+    (-20, 140, None),
+    (-110, 158, '고속 코너'),    # fast, wide-radius sweeper (one clean arc)
+    (-200, 152, None),
+    (-280, 110, None),
+    (-320, 45, '감속 코너'),     # decreasing-radius: opens wide then tightens...
+    (-330, -25, None),
+    (-300, -70, None),
+    (-255, -82, None),         # ...exit pinches tight (the classic trap)
+    (-195, -80, '슬라럼'),       # continuous slalom (quick transitions)
+    (-230, -140, None),
+    (-165, -160, None),
+    (-205, -215, None),
+    (-130, -230, None),
+    (-45, -220, '스키드패드'),    # big constant-radius loop (steady-state)
+    (35, -250, None),
+    (110, -225, None),
+    (135, -150, None),
+    (75, -120, '복합 코너'),     # long double-apex left, back toward start...
+    (-10, -130, None),
+    (-55, -75, None),
+    (-40, -12, None),          # ...sweeping up-right, tangent into the straight
+    (-12, -4, None),
 ]
 
 
@@ -98,8 +108,17 @@ def main():
     segs.sort(key=lambda x: x['s'])
 
     total = m * STEP
+    # gentle crest over the fast-sweeper/decreasing section (blind-crest practice)
+    # — a raised-cosine hill so the flat track isn't monotonous.
+    def elev(i):
+        f = i / m
+        c = 0.0
+        for center, width, height in [(0.34, 0.16, 7.5), (0.58, 0.12, -4.0)]:
+            d = abs(((f - center + 0.5) % 1.0) - 0.5) / width
+            if d < 1: c += height * 0.5 * (1 + math.cos(math.pi * d))
+        return Y + c
     data = {'name': '연습 트랙 (Test Track)', 'step': STEP, 'total': total,
-            'points': [[round(x, 2), Y, round(z, 2)] for x, z in rs],
+            'points': [[round(x, 2), round(elev(i), 2), round(z, 2)] for i, (x, z) in enumerate(rs)],
             'segments': segs, 'origin': {'lat': 0, 'lon': 0}}
     json.dump(data, open(f'{ROOT}/data/practice.json', 'w'))
     os.makedirs(f'{ROOT}/js/tracks', exist_ok=True)
