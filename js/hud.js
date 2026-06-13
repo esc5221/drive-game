@@ -7,7 +7,8 @@ const fmt = ms => {
 };
 
 export class Hud {
-  constructor(track) {
+  constructor(track, trackId) {
+    this.tid = trackId || 'nordschleife';
     this.track = track;
     this.ghost = null;           // wired by main.js
     this.el = {
@@ -26,9 +27,9 @@ export class Hud {
     this.lapStart = null;          // performance-time ms when lap began
     this.lapValid = true;
     this.lastLap = null;
-    this.bestLap = Number(localStorage.getItem('ns-best2')) || null;
+    this.bestLap = Number(localStorage.getItem('ns-best2-' + this.tid)) || null;
     this.sectorTimes = [null, null, null];
-    this.bestSectors = JSON.parse(localStorage.getItem('ns-best-sectors2') || '[null,null,null]');
+    this.bestSectors = JSON.parse(localStorage.getItem('ns-best-sectors2-' + this.tid) || '[null,null,null]');
     this.curSector = 0;
     this.lapCount = 0;
     this._lastSection = null;
@@ -105,7 +106,7 @@ export class Hud {
           if (this.ghost) this.ghost.endLap(elapsed, isBest);
           if (isBest) {
             this.bestLap = elapsed;
-            localStorage.setItem('ns-best2', String(elapsed));
+            localStorage.setItem('ns-best2-' + this.tid, String(elapsed));
             this.el.best.textContent = 'BEST  ' + fmt(this.bestLap);
             this.flash('NEW BEST LAP  ' + fmt(elapsed), '#ffd24a');
           } else {
@@ -187,7 +188,7 @@ export class Hud {
     if (best == null || ms < best) {
       color = '#c77dff';
       this.bestSectors[idx] = ms;
-      localStorage.setItem('ns-best-sectors2', JSON.stringify(this.bestSectors));
+      localStorage.setItem('ns-best-sectors2-' + this.tid, JSON.stringify(this.bestSectors));
     } else if (ms < best + 500) color = '#4be38a';
     this.el.sector.textContent = `S${idx + 1}  ` + fmt(ms);
     this.el.sector.style.color = color;

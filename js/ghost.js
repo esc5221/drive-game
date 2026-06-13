@@ -21,7 +21,8 @@ function buildGhostCar() {
 }
 
 export class Ghost {
-  constructor(scene, track) {
+  constructor(scene, track, trackId) {
+    this.tid = trackId || 'nordschleife';
     this.track = track;
     this.nBuckets = Math.ceil(track.total / BUCKET);
     this.best = null;            // {dt, p:[...], q:[...], delta:[...], lap}
@@ -31,7 +32,7 @@ export class Ghost {
     scene.add(this.mesh);
     this._rec = null;
     try {
-      const raw = localStorage.getItem('ns-ghost2');
+      const raw = localStorage.getItem('ns-ghost2-' + this.tid);
       if (raw) this.best = JSON.parse(raw);
     } catch (e) { /* corrupt save */ }
   }
@@ -107,7 +108,7 @@ export class Ghost {
       delta: Array.from(rec.delta, v => v < 0 ? -1 : +v.toFixed(2)),
     };
     try {
-      localStorage.setItem('ns-ghost2', JSON.stringify(this.best));
+      localStorage.setItem('ns-ghost2-' + this.tid, JSON.stringify(this.best));
     } catch (e) { /* quota */ }
   }
 }

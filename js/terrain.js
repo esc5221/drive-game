@@ -1,21 +1,34 @@
-// Real-DEM terrain: bilinear height sampling, wide terrain mesh with
-// height/slope-based coloring, and the unified visual ground function.
+// Terrain: a real DEM when one is supplied (Nürburgring), otherwise a
+// procedural rolling ground derived from the track's own elevation (Spa,
+// practice). Either way exposes the same demHeight / worldGround / buildDem.
 import * as THREE from 'three';
-import { DEM } from './dem_data.js';
 import { ROAD_HALF, RAIL_D } from './track.js';
 
 let _track = null;          // set by buildDem; enables corridor carving
+let _dem = null;            // real DEM module, or null for procedural ground
+let _meanY = 0;
+
+// supply (or clear) the real DEM before buildWorld; null => procedural
+export function setDem(dem) { _dem = dem || null; _distGrid = null; }
 
 function rawDem(x, z) {
-  const fx = (x - DEM.x0) / DEM.step;
-  const fz = (z - DEM.z0) / DEM.step;
-  const i = THREE.MathUtils.clamp(Math.floor(fx), 0, DEM.nx - 2);
-  const j = THREE.MathUtils.clamp(Math.floor(fz), 0, DEM.nz - 2);
+  if (!_dem) {              // procedural: follow the nearest track elevation
+    const ni = _track ? _track.nearestIndex(x, z, 10) : -1;
+    let baseY = _meanY, dist = 300;
+    if (ni >= 0) { baseY = _track.py[ni]; dist = Math.hypot(_track.px[ni] - x, _track.pz[ni] - z); }
+    const n = Math.sin(x * 0.0061 + z * 0.0103) * Math.sin(x * 0.0152 - z * 0.0047)
+            + 0.4 * Math.sin(x * 0.031 + z * 0.027);
+    return baseY - 1.2 + n * Math.min(1, dist / 90) * 11;
+  }
+  const fx = (x - _dem.x0) / _dem.step;
+  const fz = (z - _dem.z0) / _dem.step;
+  const i = THREE.MathUtils.clamp(Math.floor(fx), 0, _dem.nx - 2);
+  const j = THREE.MathUtils.clamp(Math.floor(fz), 0, _dem.nz - 2);
   const tx = THREE.MathUtils.clamp(fx - i, 0, 1);
   const tz = THREE.MathUtils.clamp(fz - j, 0, 1);
-  const h = DEM.h;
-  const a = h[j * DEM.nx + i], b = h[j * DEM.nx + i + 1];
-  const c = h[(j + 1) * DEM.nx + i], d = h[(j + 1) * DEM.nx + i + 1];
+  const h = _dem.h;
+  const a = h[j * _dem.nx + i], b = h[j * _dem.nx + i + 1];
+  const c = h[(j + 1) * _dem.nx + i], d = h[(j + 1) * _dem.nx + i + 1];
   return (a + (b - a) * tx) * (1 - tz) + (c + (d - c) * tx) * tz;
 }
 
@@ -28,26 +41,26 @@ let _distGrid = null;       // coarse per-DEM-cell distance to track (speed cach
 
 function coarseDist(x, z) {
   if (!_distGrid) {
-    _distGrid = new Float32Array(DEM.nx * DEM.nz).fill(1e9);
-    for (let j = 0; j < DEM.nz; j++) {
-      for (let i = 0; i < DEM.nx; i++) {
-        const cx = DEM.x0 + i * DEM.step, cz = DEM.z0 + j * DEM.step;
+    _distGrid = new Float32Array(_dem.nx * _dem.nz).fill(1e9);
+    for (let j = 0; j < _dem.nz; j++) {
+      for (let i = 0; i < _dem.nx; i++) {
+        const cx = _dem.x0 + i * _dem.step, cz = _dem.z0 + j * _dem.step;
         const ni = _track.nearestIndex(cx, cz, 6);
         if (ni >= 0) {
-          _distGrid[j * DEM.nx + i] =
+          _distGrid[j * _dem.nx + i] =
             Math.hypot(_track.px[ni] - cx, _track.pz[ni] - cz);
         }
       }
     }
   }
-  const i = THREE.MathUtils.clamp(Math.round((x - DEM.x0) / DEM.step), 0, DEM.nx - 1);
-  const j = THREE.MathUtils.clamp(Math.round((z - DEM.z0) / DEM.step), 0, DEM.nz - 1);
-  return _distGrid[j * DEM.nx + i];
+  const i = THREE.MathUtils.clamp(Math.round((x - _dem.x0) / _dem.step), 0, _dem.nx - 1);
+  const j = THREE.MathUtils.clamp(Math.round((z - _dem.z0) / _dem.step), 0, _dem.nz - 1);
+  return _distGrid[j * _dem.nx + i];
 }
 
 export function demHeight(x, z) {
   let y = rawDem(x, z);
-  if (!_track) return y;
+  if (!_track || !_dem) return y;   // procedural ground already follows the track
   // cell-center distance minus half diagonal bounds the true distance
   if (coarseDist(x, z) > 200) return y;
   const ni = _track.nearestIndex(x, z, 6);      // search up to ~150 m out
@@ -78,12 +91,27 @@ export function worldGround(track, x, z) {
 
 export function buildDem(scene, track) {
   _track = track;             // demHeight() carves around the road from here on
+  let sy = 0; for (let i = 0; i < track.n; i++) sy += track.py[i];
+  _meanY = sy / track.n;
 
-  // 3x upsampled grid: ~21.7 m triangles, small enough that interpolation
-  // between vertices can no longer bridge across the carved corridor
-  const UP = 3;
-  const nx = (DEM.nx - 1) * UP + 1, nz = (DEM.nz - 1) * UP + 1;
-  const st = DEM.step / UP;
+  // grid bounds + resolution: real DEM uses its own grid; procedural spans the
+  // track bounding box + margin at a fixed cell size.
+  let gx0, gz0, st, nx, nz;
+  if (_dem) {
+    const UP = 3;             // upsample so triangles can't bridge the corridor
+    nx = (_dem.nx - 1) * UP + 1; nz = (_dem.nz - 1) * UP + 1;
+    st = _dem.step / UP; gx0 = _dem.x0; gz0 = _dem.z0;
+  } else {
+    let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+    for (let i = 0; i < track.n; i++) {
+      minX = Math.min(minX, track.px[i]); maxX = Math.max(maxX, track.px[i]);
+      minZ = Math.min(minZ, track.pz[i]); maxZ = Math.max(maxZ, track.pz[i]);
+    }
+    const M = 400; st = 22;
+    gx0 = minX - M; gz0 = minZ - M;
+    nx = Math.ceil((maxX - minX + 2 * M) / st) + 1;
+    nz = Math.ceil((maxZ - minZ + 2 * M) / st) + 1;
+  }
   const pos = new Float32Array(nx * nz * 3);
   const col = new Float32Array(nx * nz * 3);
   const cLow = new THREE.Color(0x4f7038);    // valley grass
@@ -92,12 +120,13 @@ export function buildDem(scene, track) {
   const tmp = new THREE.Color();
 
   let hMin = Infinity, hMax = -Infinity;
-  for (const h of DEM.h) { hMin = Math.min(hMin, h); hMax = Math.max(hMax, h); }
+  if (_dem) { for (const h of _dem.h) { hMin = Math.min(hMin, h); hMax = Math.max(hMax, h); } }
+  else { hMin = _meanY - 12; hMax = _meanY + 18; }
 
   for (let j = 0; j < nz; j++) {
     for (let i = 0; i < nx; i++) {
       const k = j * nx + i;
-      const x = DEM.x0 + i * st, z = DEM.z0 + j * st;
+      const x = gx0 + i * st, z = gz0 + j * st;
       const yRaw = rawDem(x, z);
       pos[k * 3] = x; pos[k * 3 + 1] = demHeight(x, z) - 0.4; pos[k * 3 + 2] = z;
       const t = (yRaw - hMin) / (hMax - hMin);

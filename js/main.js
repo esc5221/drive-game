@@ -1,6 +1,12 @@
 // Boot + game loop: fixed-step physics (240 Hz), camera rigs, HUD, audio.
 import * as THREE from 'three';
-import { TRACK } from './track_data.js';
+import { TRACK as T_NORD } from './track_data.js';
+import { TRACK as T_SPA } from './tracks/spa.js';
+import { TRACK as T_PRAC } from './tracks/practice.js';
+import { DEM } from './dem_data.js';
+import { setDem } from './terrain.js';
+import { trackMeta } from './tracks/index.js';
+import { showMenu } from './menu.js';
 import { Track } from './track.js';
 import { Vehicle, DT } from './physics.js';
 import { buildWorld, groundHeightAt } from './world.js';
@@ -19,6 +25,11 @@ import { Hud } from './hud.js';
 import { Ghost } from './ghost.js';
 import { RaceLine } from './raceline.js';
 
+const TRACK_DATA = { nordschleife: T_NORD, spa: T_SPA, practice: T_PRAC };
+const trackId = localStorage.getItem('ns-track') || 'nordschleife';
+const TRACK = TRACK_DATA[trackId] || T_NORD;
+const tMeta = trackMeta(trackId);
+setDem(trackId === 'nordschleife' ? DEM : null);   // real DEM only for the 'Ring
 const track = new Track(TRACK);
 
 const TOUCH = isTouchDevice();
@@ -46,7 +57,7 @@ const autoQ = new AutoQuality(tierName, renderer, post, [
   { label: '미러 OFF', run: () => { TIER.mirror = 0; } },
 ]);
 
-const SPAWN_S = 3550;          // just before Hatzenbach — corners right away
+const SPAWN_S = tMeta.spawn;   // per-track start position
 let carId = savedCarId();
 let vehicle = new Vehicle(track, CARS[carId]);
 vehicle.reset(SPAWN_S);
@@ -54,8 +65,8 @@ vehicle.reset(SPAWN_S);
 let carVis = new CarVisual(scene, renderer, CARS[carId]);
 const input = TOUCH ? new TouchInput() : new Input();
 const audio = new CarAudio();
-const hud = new Hud(track);
-const ghost = new Ghost(scene, track);
+const hud = new Hud(track, trackId);
+const ghost = new Ghost(scene, track, trackId);
 hud.ghost = ghost;
 const raceLine = new RaceLine(scene, track);
 
@@ -363,13 +374,43 @@ addEventListener('resize', () => {
 
 requestAnimationFrame(loop);
 
-if (TOUCH) {
+// commit to driving: start audio, (touch) go fullscreen + lock orientation
+function beginDrive() {
+  paused = false;
   hud.toggleHelp(false);
-  showStartOverlay(() => {
-    audio.start();
-    audio.setEngine(CARS[carId]);
-    if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
-    hud.flash(input.mode === 'tilt' ? '틸트 조향 — 폰을 핸들처럼' : '버튼 조향 (틸트 버튼으로 전환)');
+  audio.start();
+  audio.setEngine(CARS[carId]);
+  if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
+  updateAudioGate();
+  if (TOUCH) {
+    try { document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch (e) {}
+    try { screen.orientation.lock('landscape'); } catch (e) {}
+    TouchInput.requestMotionPermission();
+    hud.flash(input.mode === 'tilt' ? '틸트 조향 — 폰을 핸들처럼' : '버튼 조향 (설정에서 틸트 전환)');
+  }
+}
+
+// boot: skip the menu if we just reloaded from a track pick, else show it
+if (sessionStorage.getItem('ns-go')) {
+  sessionStorage.removeItem('ns-go');
+  hud.flash(tMeta.name);
+  beginDrive();
+} else {
+  paused = true;                 // freeze behind the menu
+  hud.toggleHelp(false);
+  showMenu({
+    trackData: TRACK_DATA, currentTrack: trackId, currentCar: carId,
+    onStart: (selTrack, selCar) => {
+      if (selTrack !== trackId) {              // different track -> reload into it
+        localStorage.setItem('ns-track', selTrack);
+        localStorage.setItem('ns-car', selCar);
+        sessionStorage.setItem('ns-go', '1');
+        location.reload();
+      } else {                                  // same track -> start now
+        if (selCar !== carId) { localStorage.setItem('ns-car', selCar); setCar(selCar); }
+        beginDrive();
+      }
+    },
   });
 }
 

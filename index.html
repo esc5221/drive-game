@@ -98,6 +98,31 @@
     color: #fff; border-style: solid; border-width: 1px; font-weight: 700; cursor: pointer;
     font-family: inherit; }
 
+  /* ---------- main menu ---------- */
+  #menu { position: fixed; inset: 0; z-index: 80; pointer-events: auto; overflow-y: auto;
+    background: radial-gradient(ellipse at 50% 0%, rgba(20,34,52,0.92), rgba(3,7,13,0.96));
+    display: flex; align-items: center; justify-content: center; }
+  #menu-inner { width: min(760px, 92vw); padding: 28px 26px; }
+  #menu h1 { font-size: 30px; font-weight: 800; letter-spacing: 3px; color: #fff; margin: 0 0 6px; }
+  #menu h1 span { color: #ffd24a; margin-left: 10px; }
+  .menu-sec { font-size: 12px; letter-spacing: 2px; color: #8aa0b6; margin: 18px 0 8px; }
+  #menu-tracks { display: flex; gap: 12px; flex-wrap: wrap; }
+  .menu-card { background: rgba(255,255,255,0.05); border: 1.5px solid rgba(255,255,255,0.14);
+    border-radius: 12px; padding: 10px; cursor: pointer; width: 172px; transition: border-color .15s, background .15s; }
+  .menu-card:hover { background: rgba(255,255,255,0.09); }
+  .menu-card.active { border-color: #7ec8ff; background: rgba(64,130,200,0.2); }
+  .menu-card canvas { width: 150px; height: 110px; display: block; }
+  .mc-name { color: #fff; font-size: 14px; font-weight: 700; margin-top: 6px; }
+  .mc-meta { color: #93a3b4; font-size: 12px; margin-top: 2px; }
+  #menu-cars { display: flex; gap: 8px; flex-wrap: wrap; }
+  .menu-carbtn { background: rgba(255,255,255,0.06); color: #dfe4ea; border: 1.5px solid rgba(255,255,255,0.16);
+    border-radius: 9px; padding: 9px 16px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .menu-carbtn.active { border-color: #7ec8ff; background: rgba(64,130,200,0.35); color: #fff; }
+  #menu-start { margin-top: 22px; width: 100%; padding: 15px; font-size: 17px; font-weight: 800;
+    letter-spacing: 3px; color: #07140e; background: linear-gradient(180deg,#7ee0a8,#46c483);
+    border: none; border-radius: 11px; cursor: pointer; font-family: inherit; }
+  #menu-start:hover { filter: brightness(1.08); }
+
   #tap-start { position: fixed; inset: 0; z-index: 99; background: rgba(4,9,17,0.94);
     display: flex; align-items: center; justify-content: center; color: #fff;
     text-align: center; pointer-events: auto; }
