@@ -12,31 +12,31 @@ Y = 80.0  # flat
 # control points (x, z), counter-clockwise closed loop, with named features.
 # Generous spacing keeps Catmull-Rom radii gentle; only the hairpin is tight.
 # (name marks the feature that STARTS near this control point)
-# CCW loop. Travel never reverses: straight (right) -> hairpin up the right ->
-# sweeper/slalom along the top (left) -> chicane + skidpad down the left ->
-# a smooth arc from the bottom-left back up to the start, tangent to the straight.
+# Deliberately demanding: a tight hairpin, a real continuous slalom, a skidpad
+# loop. Only the FINAL corner is widened so it flows onto the straight instead
+# of the old cramped 3 m flick.
 CTRL = [
     (0, 0, '메인 직선'),        # long straight — accel + heavy braking
-    (210, 0, None),
-    (410, 0, None),
-    (560, 18, None),           # braking zone
-    (645, 75, '헤어핀'),        # the one deliberately tight 180
-    (610, 150, None),
-    (515, 165, None),
-    (400, 152, '고속 스위퍼'),   # fast, wide-radius sweeper (top), heading left
-    (280, 180, None),
-    (165, 158, None),
-    (90, 174, '슬라럼'),        # gentle weave (shallow offsets, no cusp)
-    (15, 150, None),
-    (-55, 176, '시케인'),       # flowing chicane, upper-left
-    (-120, 140, None),
-    (-165, 75, None),
-    (-185, -10, '스키드패드'),   # big steady-state loop, far left
-    (-165, -95, None),
-    (-95, -140, None),         # round the bottom of the loop
-    (-55, -75, '복귀'),         # smooth arc up-right toward the start...
-    (-25, -25, None),
-    (-8, -7, None),            # ...nearly tangent to the straight at (0,0)
+    (170, 0, None),
+    (340, 0, None),
+    (470, 2, '헤어핀'),         # tight 180
+    (545, 25, None),
+    (555, 80, None),
+    (505, 120, None),
+    (435, 120, '슬라럼'),       # continuous slalom — fast left-right-left-right
+    (375, 92, None),
+    (315, 140, None),
+    (250, 92, None),
+    (185, 140, None),
+    (120, 108, '스키드패드'),    # big constant-radius loop, down the left
+    (35, 140, None),
+    (-60, 115, None),
+    (-130, 50, None),
+    (-150, -40, '마지막 코너'),   # wide flowing final corner (softened)...
+    (-120, -100, None),
+    (-65, -95, None),
+    (-75, -6, None),           # ...exits onto a short straight, tangent to the
+    (-35, -3, None),           #    main straight (no tight flick at the line)
 ]
 
 
@@ -82,8 +82,8 @@ def main():
         for _ in range(passes):
             vals = [sum(vals[(i + k) % n] for k in range(-half, half + 1)) / (2 * half + 1) for i in range(n)]
         return vals
-    xs = smooth([p[0] for p in rs], 7, 2)
-    zs = smooth([p[1] for p in rs], 7, 2)
+    xs = smooth([p[0] for p in rs], 3, 1)   # light — only kill overshoot hooks, keep slalom sharp
+    zs = smooth([p[1] for p in rs], 3, 1)
     rs = list(zip(xs, zs))
 
     # segment names: map each named control to nearest resampled index -> arc s
