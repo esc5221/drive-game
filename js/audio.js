@@ -8,6 +8,9 @@ export class CarAudio {
   constructor() {
     this.ctx = null;
     this.started = false;
+    this.engineReady = false;
+    this.engineNode = null;
+    this._engineSpec = null;
   }
 
   start() {
@@ -19,37 +22,15 @@ export class CarAudio {
     this.master.gain.value = 0.5;
     this.master.connect(ctx.destination);
 
-    // ---- engine order bank
-    this.engGain = ctx.createGain(); this.engGain.gain.value = 0;
-    const shaper = ctx.createWaveShaper();
-    const curve = new Float32Array(256);
-    for (let i = 0; i < 256; i++) curve[i] = Math.tanh(2.4 * (i / 128 - 1));
-    shaper.curve = curve;
-    this.engFilter = ctx.createBiquadFilter();
-    this.engFilter.type = 'lowpass'; this.engFilter.frequency.value = 900; this.engFilter.Q.value = 1.1;
-    this.tonePeak = ctx.createBiquadFilter();
-    this.tonePeak.type = 'peaking'; this.tonePeak.frequency.value = 1200;
-    this.tonePeak.Q.value = 1.0; this.tonePeak.gain.value = 5;
-
-    this.oscs = [];
-    for (let i = 0; i < 6; i++) {
-      const o = ctx.createOscillator();
-      o.type = i === 2 ? 'square' : 'sawtooth';
-      const g = ctx.createGain(); g.gain.value = 0;
-      o.connect(g); g.connect(shaper);
-      o.start();
-      this.oscs.push({ o, g });
-    }
-    shaper.connect(this.engFilter);
-    this.engFilter.connect(this.tonePeak);
-    this.tonePeak.connect(this.engGain);
-    this.engGain.connect(this.master);
-
-    // sub thump (low-order sine, felt more than heard)
-    this.sub = ctx.createOscillator(); this.sub.type = 'sine';
-    this.subG = ctx.createGain(); this.subG.gain.value = 0;
-    this.sub.connect(this.subG); this.subG.connect(this.master);
-    this.sub.start();
+    // ---- engine: procedural firing-pulse worklet (loaded async).
+    // Bus: worklet -> engineGain -> master. Until the module resolves the
+    // engine is silent; everything else (tires/wind) works immediately.
+    this.engineGain = ctx.createGain();
+    this.engineGain.gain.value = 0.0;
+    this.engineGain.connect(this.master);
+    ctx.audioWorklet.addModule(new URL('./engine-processor.js', import.meta.url))
+      .then(() => { this.engineReady = true; if (this._engineSpec) this._buildEngine(this._engineSpec); })
+      .catch(() => { /* worklet unsupported — engine stays silent, rest plays */ });
 
     // shared noise buffer
     const len = ctx.sampleRate * 2;
@@ -68,7 +49,6 @@ export class CarAudio {
     };
 
     this.rasp = noiseSrc('bandpass', 1800, 1.2);     // exhaust texture
-    this.intake = noiseSrc('bandpass', 800, 0.9);    // induction hiss
     this.wind = noiseSrc('lowpass', 600, 0.5);
     this.squeal = noiseSrc('bandpass', 950, 4.0);    // lateral tire cry
     this.scrub = noiseSrc('bandpass', 420, 2.0);     // combined-slip grind
@@ -92,7 +72,29 @@ export class CarAudio {
     this.turbo = { o: tw, g: twG };
     this._prevThr = 0;
     this._popCool = 0;
+  }
 
+  // (re)build the engine worklet node for a car spec's engine_model
+  _buildEngine(spec) {
+    if (!this.engineReady) { this._engineSpec = spec; return; }
+    if (this.engineNode) {
+      try { this.engineNode.port.postMessage('stop'); } catch (e) {}
+      this.engineNode.disconnect();
+    }
+    const m = spec.engine_model || { cyl: spec.audio.cyl, level: 0.5 };
+    this.engineNode = new AudioWorkletNode(this.ctx, 'engine-processor', {
+      numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1],
+      processorOptions: m,
+    });
+    this.engineNode.connect(this.engineGain);
+    this._engineLevel = m.level ?? 0.5;
+    this._engineSpec = spec;
+  }
+
+  // called by main when the car changes
+  setEngine(spec) {
+    if (!this.started) { this._engineSpec = spec; return; }
+    this._buildEngine(spec);
   }
 
   update(vehicle, dt) {
@@ -107,26 +109,20 @@ export class CarAudio {
     const T = 0.06;
     const redline = vehicle.spec.engine.redline;
 
-    // ---- engine
-    const f0 = rpm / 60 * (P.cyl / 2);               // firing fundamental
+    // ---- engine: drive the worklet's crank params
     const thr = vehicle.ctrl.throttle;
     const rpmF = rpm / redline;
-    for (let i = 0; i < 6; i++) {
-      this.oscs[i].o.frequency.setTargetAtTime(f0 * P.orders[i], t, T);
-      this.oscs[i].g.gain.setTargetAtTime(P.gains[i], t, 0.2);
+    if (this.engineNode) {
+      this.engineNode.parameters.get('rpm').setTargetAtTime(rpm, t, 0.02);
+      this.engineNode.parameters.get('throttle').setTargetAtTime(thr, t, 0.03);
+      this.engineNode.parameters.get('redline').value = redline;
+      // overall engine presence rises with load + revs
+      this.engineGain.gain.setTargetAtTime(
+        (this._engineLevel || 0.5) * (0.55 + thr * 0.3 + rpmF * 0.15), t, T);
     }
-    this.engFilter.frequency.setTargetAtTime(
-      420 + rpmF * (P.tone + 1800) + thr * 1900, t, T);
-    this.tonePeak.frequency.setTargetAtTime(P.tone * (0.7 + rpmF * 0.8), t, T);
-    // on/off-throttle timbre contrast
-    this.engGain.gain.setTargetAtTime(0.085 + thr * 0.15 + rpmF * 0.11, t, T);
-
-    this.rasp.f.frequency.setTargetAtTime(Math.min(4000, f0 * 2.0), t, T);
-    this.rasp.g.gain.setTargetAtTime(P.rasp * (0.25 + thr * 0.75) * rpmF * 0.25, t, T);
-    this.intake.f.frequency.setTargetAtTime(500 + thr * 1100, t, T);
-    this.intake.g.gain.setTargetAtTime(P.intake * thr * (0.5 + rpmF * 0.5) * 0.10, t, T);
-    this.sub.frequency.setTargetAtTime(Math.max(28, f0 * 0.5), t, T);
-    this.subG.gain.setTargetAtTime(P.sub * thr * Math.max(0, 1 - rpmF * 1.2), t, 0.1);
+    // exhaust rasp still layered on top of the waveguide for extra bite
+    this.rasp.f.frequency.setTargetAtTime(Math.min(4200, rpm / 60 * P.cyl), t, T);
+    this.rasp.g.gain.setTargetAtTime(P.rasp * (0.2 + thr * 0.8) * rpmF * 0.14, t, T);
 
     // ---- wind / speed
     const v = Math.abs(spd);

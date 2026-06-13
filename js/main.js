@@ -64,7 +64,9 @@ carVis.setCameraMode(camMode);
 let paused = false;
 
 input.onKey = code => {
+  const firstStart = !audio.started;
   audio.start();
+  if (firstStart) audio.setEngine(CARS[carId]);
   if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
   if (code.startsWith('__mode:')) {
     hud.flash(code.endsWith('tilt') ? '틸트 조향 — 폰을 핸들처럼 기울이세요' : '버튼 조향');
@@ -137,6 +139,7 @@ function setCar(id) {
   carVis = new CarVisual(scene, renderer, CARS[id]);
   carVis.setCameraMode(camMode);
   carVis.setHeadlights(atmo.isNight);
+  audio.setEngine(CARS[id]);
   lastGear = 1;
   window.__vehicle = vehicle;
   hud.invalidateLap();
@@ -357,6 +360,7 @@ if (TOUCH) {
   hud.toggleHelp(false);
   showStartOverlay(() => {
     audio.start();
+    audio.setEngine(CARS[carId]);
     if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
     hud.flash(input.mode === 'tilt' ? '틸트 조향 — 폰을 핸들처럼' : '버튼 조향 (틸트 버튼으로 전환)');
   });
