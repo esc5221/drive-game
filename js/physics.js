@@ -179,9 +179,12 @@ export class Vehicle {
     const wAvg = (this.wheels[di].omega + this.wheels[di + 1].omega) / 2;
     let rpmFromWheels = Math.abs(wAvg) * ratio * 60 / (2 * Math.PI);
     this.rpm = Math.max(ENG.idle, Math.min(rpmFromWheels, ENG.redline + 200));
-    // launch: below clutch lock speed, engine revs follow throttle
+    // launch: below clutch-lock speed the clutch slips and revs sit high in
+    // the powerband (a kart/F1 launches at high rpm, not just off idle).
     const clutchLocked = Math.abs(vFwd) > 4.0;
-    if (!clutchLocked) this.rpm = Math.max(this.rpm, ENG.idle + this.ctrl.throttle * 2600);
+    if (!clutchLocked) {
+      this.rpm = Math.max(this.rpm, ENG.idle + this.ctrl.throttle * (ENG.redline - ENG.idle) * 0.5);
+    }
 
     let thr = this.ctrl.throttle * (1 - this.tcCut);
     if (this.shiftTimer > 0) thr = 0;

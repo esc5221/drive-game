@@ -3,11 +3,12 @@ import * as THREE from 'three';
 import { TRACK as T_NORD } from './track_data.js';
 import { TRACK as T_SPA } from './tracks/spa.js';
 import { TRACK as T_PRAC } from './tracks/practice.js';
+import { TRACK as T_KART } from './tracks/kart.js';
 import { DEM } from './dem_data.js';
 import { setDem, demHeight } from './terrain.js';
 import { trackMeta } from './tracks/index.js';
 import { showMenu } from './menu.js';
-import { Track } from './track.js';
+import { Track, setTrackWidth } from './track.js';
 import { Vehicle, DT } from './physics.js';
 import { buildWorld, groundHeightAt } from './world.js';
 import { Atmosphere } from './atmo.js';
@@ -25,10 +26,11 @@ import { Hud } from './hud.js';
 import { Ghost } from './ghost.js';
 import { RaceLine } from './raceline.js';
 
-const TRACK_DATA = { nordschleife: T_NORD, spa: T_SPA, practice: T_PRAC };
+const TRACK_DATA = { nordschleife: T_NORD, spa: T_SPA, practice: T_PRAC, kart: T_KART };
 const trackId = localStorage.getItem('ns-track') || 'nordschleife';
 const TRACK = TRACK_DATA[trackId] || T_NORD;
 const tMeta = trackMeta(trackId);
+setTrackWidth(TRACK.roadHalf || 4.5);               // narrow kart track, wide road circuits
 setDem(trackId === 'nordschleife' ? DEM : null);   // real DEM only for the 'Ring
 const track = new Track(TRACK);
 

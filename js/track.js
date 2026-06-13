@@ -2,10 +2,20 @@
 // and fast analytic surface queries for the physics raycasts.
 import * as THREE from 'three';
 
-export const ROAD_HALF = 4.5;     // asphalt half width (m)
-export const CURB_W = 0.7;        // curb width beyond asphalt
-export const RAIL_D = 7.2;        // guardrail lateral distance from centerline
-export const WALL_D = 6.9;        // physics wall distance
+// Track width is per-track (set via setTrackWidth before building). These are
+// `let` exports so ES module live-bindings propagate the value to every file
+// (world/physics/raceline) that imports them — set once at boot, read at build.
+export let ROAD_HALF = 4.5;       // asphalt half width (m)
+export let CURB_W = 0.7;          // curb width beyond asphalt
+export let RAIL_D = 7.2;          // guardrail lateral distance from centerline
+export let WALL_D = 6.9;          // physics wall distance
+
+export function setTrackWidth(roadHalf) {
+  ROAD_HALF = roadHalf;
+  CURB_W = roadHalf < 4 ? 0.5 : 0.7;       // narrower kerbs on a kart track
+  RAIL_D = roadHalf + 2.7;                  // keep the same edge offsets
+  WALL_D = roadHalf + 2.4;
+}
 
 export const SURF = { ROAD: 0, CURB: 1, GRASS: 2 };
 

@@ -59,7 +59,15 @@ export class CarVisual {
     this.exterior = new THREE.Group();
     this.root.add(this.cockpit, this.exterior);
 
-    this._buildExterior();
+    this.type = (spec.visual && spec.visual.type) || 'road';
+    // eye position must be known before the cockpit builds (open cars place the
+    // wheel/cluster relative to it)
+    this.eyeLocal = this.type === 'kart' ? new THREE.Vector3(0, 0.52, 0.10)
+                  : this.type === 'formula' ? new THREE.Vector3(0, 0.62, 0.30)
+                  : new THREE.Vector3(-0.37, 0.82, -0.24);
+    if (this.type === 'kart') this._buildKart();
+    else if (this.type === 'formula') this._buildFormula();
+    else this._buildExterior();
     this._buildCockpit();
 
     this.mirrorRT = new THREE.WebGLRenderTarget(384, 112);
@@ -69,7 +77,6 @@ export class CarVisual {
     this.mirrorMat.map.offset.x = 1;
     this.mirrorMat.needsUpdate = true;
 
-    this.eyeLocal = new THREE.Vector3(-0.37, 0.82, -0.24);
     this.mode = 0;
 
     // headlights (night): two spots casting a pool down the road
@@ -249,13 +256,17 @@ export class CarVisual {
       }
     }
 
-    // wheels
+    this._buildWheels(0.26);
+  }
+
+  // four spinning wheel groups (positioned each frame in update)
+  _buildWheels(tireW) {
     this.wheelMeshes = [];
     const R = this.spec.wheels.radius;
-    const tireGeo = new THREE.CylinderGeometry(R, R, 0.26, 18);
+    const tireGeo = new THREE.CylinderGeometry(R, R, tireW, 18);
     tireGeo.rotateZ(Math.PI / 2);
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x16181a, roughness: 0.9 });
-    const hubGeo = new THREE.CylinderGeometry(R * 0.55, R * 0.55, 0.27, 12);
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x16181a, roughness: 0.92 });
+    const hubGeo = new THREE.CylinderGeometry(R * 0.55, R * 0.55, tireW + 0.01, 12);
     hubGeo.rotateZ(Math.PI / 2);
     const hubMat = new THREE.MeshStandardMaterial({ color: 0x9aa2ab, metalness: 0.7, roughness: 0.35 });
     for (let i = 0; i < 4; i++) {
@@ -269,6 +280,91 @@ export class CarVisual {
     }
   }
 
+  // ---------------------------------------------------------------- open-wheel exteriors
+  // Go-kart: low flat frame, exposed wheels, seat, sidepods, bumpers.
+  _buildKart() {
+    const V = this.spec.visual;
+    const paint = new THREE.MeshStandardMaterial({ color: V.color, metalness: 0.3, roughness: 0.5 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x14171c, roughness: 0.7 });
+    const e = this.exterior;
+    const W = this.spec.wheels;
+    // chassis floor pan
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.05, 1.5), dark);
+    floor.position.set(0, -0.16, 0.05); floor.castShadow = true; e.add(floor);
+    // front fairing (nose)
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.16, 0.36), paint);
+    nose.position.set(0, -0.10, -0.95); e.add(nose);
+    // side pods
+    for (const sgn of [-1, 1]) {
+      const pod = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.20, 0.85), paint);
+      pod.position.set(sgn * 0.46, -0.08, 0.05); e.add(pod);
+    }
+    // seat (bucket)
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.34, 0.42), dark);
+    seat.position.set(0, 0.05, 0.30); e.add(seat);
+    const seatBack = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.40, 0.10), dark);
+    seatBack.position.set(0, 0.10, 0.52); e.add(seatBack);
+    // steering column + small wheel (visible from chase)
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.4, 6), dark);
+    col.position.set(0, 0.05, -0.30); col.rotation.x = 0.7; e.add(col);
+    // rear bumper + engine block on the right
+    const eng = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.26, 0.3), dark);
+    eng.position.set(0.34, 0.0, 0.62); e.add(eng);
+    const rearBar = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.05, 0.05), dark);
+    rearBar.position.set(0, -0.05, 0.86); e.add(rearBar);
+    this._buildWheels(0.16);
+    this._headlightMat = null;
+  }
+
+  // Formula car: long nose, raised airbox, big front+rear wings, halo, exposed wheels.
+  _buildFormula() {
+    const V = this.spec.visual;
+    const paint = new THREE.MeshPhysicalMaterial({ color: V.color, metalness: 0.35, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.1 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x121418, roughness: 0.6 });
+    const accent = new THREE.MeshStandardMaterial({ color: V.accent, roughness: 0.5 });
+    const e = this.exterior;
+    // monocoque tub
+    const tub = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.34, 2.6), paint);
+    tub.position.set(0, -0.05, 0.2); tub.castShadow = true; e.add(tub);
+    // long tapering nose
+    const nose = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.22, 1.5, 8), paint);
+    nose.rotation.x = Math.PI / 2; nose.position.set(0, -0.12, -1.9); e.add(nose);
+    // sidepods
+    for (const sgn of [-1, 1]) {
+      const pod = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.30, 1.3), paint);
+      pod.position.set(sgn * 0.62, -0.04, 0.45); e.add(pod);
+    }
+    // airbox behind the driver
+    const airbox = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.42, 0.7), paint);
+    airbox.position.set(0, 0.34, 1.25); airbox.castShadow = true; e.add(airbox);
+    // halo
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.035, 8, 16, Math.PI), dark);
+    halo.rotation.x = -0.5; halo.position.set(0, 0.30, 0.15); e.add(halo);
+    const haloPost = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.3, 6), dark);
+    haloPost.position.set(0, 0.18, -0.35); e.add(haloPost);
+    // front wing
+    const fw = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.04, 0.5), accent);
+    fw.position.set(0, -0.28, -2.55); e.add(fw);
+    for (const sgn of [-1, 1]) {
+      const ep = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.22, 0.5), dark);
+      ep.position.set(sgn * 0.86, -0.18, -2.55); e.add(ep);
+    }
+    // rear wing (tall)
+    const rw = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.05, 0.42), accent);
+    rw.position.set(0, 0.5, 2.35); rw.castShadow = true; e.add(rw);
+    for (const sgn of [-1, 1]) {
+      const ep = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.42, 0.42), dark);
+      ep.position.set(sgn * 0.52, 0.34, 2.35); e.add(ep);
+      const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.4, 0.1), dark);
+      pylon.position.set(sgn * 0.2, 0.3, 2.4); e.add(pylon);
+    }
+    // diffuser
+    const diff = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.3), dark);
+    diff.position.set(0, -0.26, 2.2); e.add(diff);
+    this._buildWheels(0.35);
+    this._headlightMat = null;
+  }
+
   // ---------------------------------------------------------------- cockpit
   _buildCockpit() {
     const V = this.spec.visual;
@@ -280,57 +376,59 @@ export class CarVisual {
       color: V.accent, roughness: 0.5, emissive: V.accent, emissiveIntensity: 0.15,
     });
 
-    // hood
-    const hoodGeo = new THREE.PlaneGeometry(1.78, 1.35, 8, 4);
-    const hp = hoodGeo.attributes.position;
-    for (let i = 0; i < hp.count; i++) {
-      const x = hp.getX(i), y = hp.getY(i);
-      hp.setZ(i, -0.10 * (y + 0.675) - 0.18 * (x * x) / 0.8);
+    const open = this.type !== 'road';   // kart / formula = open cockpit (no cabin)
+    const drvX = open ? 0 : -0.37;        // centered driver in open-wheel cars
+
+    if (!open) {
+      // hood
+      const hoodGeo = new THREE.PlaneGeometry(1.78, 1.35, 8, 4);
+      const hp = hoodGeo.attributes.position;
+      for (let i = 0; i < hp.count; i++) {
+        const x = hp.getX(i), y = hp.getY(i);
+        hp.setZ(i, -0.10 * (y + 0.675) - 0.18 * (x * x) / 0.8);
+      }
+      hoodGeo.computeVertexNormals();
+      const hood = new THREE.Mesh(hoodGeo, new THREE.MeshPhysicalMaterial({
+        color: V.color, metalness: 0.32, roughness: 0.38, clearcoat: 1.0, clearcoatRoughness: 0.1,
+      }));
+      hood.rotation.x = -Math.PI / 2 + 0.06;
+      hood.position.set(0, 0.42, -1.62);
+      cp.add(hood);
+
+      // layered dash: soft top pad / mid roll / lower panel + accent line
+      const dashTop = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.07, 0.36), padMat);
+      dashTop.position.set(0, 0.515, -1.02);
+      cp.add(dashTop);
+      const dashMid = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.17, 0.30), graphite);
+      dashMid.position.set(0, 0.41, -0.95);
+      dashMid.rotation.x = 0.10;
+      cp.add(dashMid);
+      const dashLow = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.20, 0.24), darker);
+      dashLow.position.set(0, 0.27, -0.90);
+      cp.add(dashLow);
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.012, 0.015), accentMat);
+      trim.position.set(0, 0.475, -0.832);
+      cp.add(trim);
+
+      for (const x of [-0.62, 0.62]) {
+        const vent = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.06, 0.02),
+          new THREE.MeshStandardMaterial({ color: 0x0b0d11, roughness: 0.6 }));
+        vent.position.set(x, 0.46, -0.845);
+        cp.add(vent);
+      }
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.30, 0.15),
+        new THREE.MeshBasicMaterial({ map: screenTexture() }));
+      screen.position.set(0.02, 0.46, -0.838);
+      screen.rotation.x = -0.08;
+      cp.add(screen);
+      const stack = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.06), darker);
+      stack.position.set(0.02, 0.30, -0.86);
+      cp.add(stack);
     }
-    hoodGeo.computeVertexNormals();
-    const hood = new THREE.Mesh(hoodGeo, new THREE.MeshPhysicalMaterial({
-      color: V.color, metalness: 0.32, roughness: 0.38, clearcoat: 1.0, clearcoatRoughness: 0.1,
-    }));
-    hood.rotation.x = -Math.PI / 2 + 0.06;
-    hood.position.set(0, 0.42, -1.62);
-    cp.add(hood);
 
-    // layered dash: soft top pad / mid roll / lower panel + accent line
-    const dashTop = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.07, 0.36), padMat);
-    dashTop.position.set(0, 0.515, -1.02);
-    cp.add(dashTop);
-    const dashMid = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.17, 0.30), graphite);
-    dashMid.position.set(0, 0.41, -0.95);
-    dashMid.rotation.x = 0.10;
-    cp.add(dashMid);
-    const dashLow = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.20, 0.24), darker);
-    dashLow.position.set(0, 0.27, -0.90);
-    cp.add(dashLow);
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.012, 0.015), accentMat);
-    trim.position.set(0, 0.475, -0.832);
-    cp.add(trim);
-
-    // vents
-    for (const x of [-0.62, 0.62]) {
-      const vent = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.06, 0.02),
-        new THREE.MeshStandardMaterial({ color: 0x0b0d11, roughness: 0.6 }));
-      vent.position.set(x, 0.46, -0.845);
-      cp.add(vent);
-    }
-
-    // center stack: infotainment screen + buttons hint
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.30, 0.15),
-      new THREE.MeshBasicMaterial({ map: screenTexture() }));
-    screen.position.set(0.02, 0.46, -0.838);
-    screen.rotation.x = -0.08;
-    cp.add(screen);
-    const stack = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.06), darker);
-    stack.position.set(0.02, 0.30, -0.86);
-    cp.add(stack);
-
-    // gauge cluster
+    // gauge cluster — on the dash (road) or on a small steering-column pod (open)
     const cluster = new THREE.Group();
-    cluster.position.set(-0.37, 0.52, -0.86);
+    cluster.position.set(drvX, open ? this.eyeLocal.y - 0.16 : 0.52, open ? this.eyeLocal.z - 0.46 : -0.86);
     cluster.rotation.x = -0.30;
     const backing = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.26, 0.03), darker);
     backing.position.set(0.07, 0, -0.018);
@@ -394,8 +492,8 @@ export class CarVisual {
 
     // ---- steering wheel (flat bottom) + paddles + hands
     this.wheelGroup = new THREE.Group();
-    this.wheelGroup.position.set(-0.37, 0.45, -0.70);
-    this.wheelGroup.rotation.x = -0.42;
+    this.wheelGroup.position.set(drvX, open ? this.eyeLocal.y - 0.24 : 0.45, open ? this.eyeLocal.z - 0.34 : -0.70);
+    this.wheelGroup.rotation.x = open ? -0.62 : -0.42;   // open cars: more upright column
     const rimMat = new THREE.MeshStandardMaterial({ color: 0x22262e, roughness: 0.7 });
     this.wheelSpin = new THREE.Group();
     const rim = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.021, 12, 36, Math.PI * 1.72), rimMat);
@@ -494,9 +592,11 @@ export class CarVisual {
     // ---- arms: 2-bone IK (shoulder fixed to the seat, elbow via pole)
     const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x23272e, roughness: 0.92 });
     this.arms = [];
+    const shY = open ? this.eyeLocal.y - 0.12 : 0.61;
+    const shZ = open ? this.eyeLocal.z + 0.18 : -0.07;
     this.shoulders = [
-      new THREE.Vector3(-0.56, 0.61, -0.07),     // left (driver at x -0.37)
-      new THREE.Vector3(-0.18, 0.61, -0.07),     // right
+      new THREE.Vector3(drvX - 0.19, shY, shZ),  // left
+      new THREE.Vector3(drvX + 0.19, shY, shZ),  // right
     ];
     this.armLen = [0.34, 0.34];                   // upper, forearm
     for (let i = 0; i < 2; i++) {
@@ -520,7 +620,9 @@ export class CarVisual {
     }
     cp.add(this.wheelGroup);
 
-    // pillars / roof / headliner / visors
+    // pillars / roof / headliner / visors / glass / doors / seats / console —
+    // the enclosed cabin; open-wheel cars (kart/formula) skip all of it.
+    if (!open) {
     const pillarMat = new THREE.MeshStandardMaterial({ color: 0x14171c, roughness: 0.8 });
     for (const sgn of [-1, 1]) {
       const pil = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.85, 0.08), pillarMat);
@@ -595,17 +697,21 @@ export class CarVisual {
     const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.05, 0.5), darker);
     shelf.position.set(0, 0.55, 0.95);
     cp.add(shelf);
+    }
 
-    // rear-view mirror
+    // rear-view mirror (the road car shows a center mirror; open cars don't,
+    // but the material/RT is always created so renderMirror stays valid)
     this.mirrorMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const mirFrame = new THREE.Mesh(new THREE.BoxGeometry(0.31, 0.11, 0.025), pillarMat);
-    mirFrame.position.set(0, 1.02, -0.60);
-    mirFrame.rotation.x = -0.10;
-    cp.add(mirFrame);
-    const mir = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.088), this.mirrorMat);
-    mir.position.set(0, 1.02, -0.586);
-    mir.rotation.x = -0.10;
-    cp.add(mir);
+    if (!open) {
+      const mirFrame = new THREE.Mesh(new THREE.BoxGeometry(0.31, 0.11, 0.025), padMat);
+      mirFrame.position.set(0, 1.02, -0.60);
+      mirFrame.rotation.x = -0.10;
+      cp.add(mirFrame);
+      const mir = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.088), this.mirrorMat);
+      mir.position.set(0, 1.02, -0.586);
+      mir.rotation.x = -0.10;
+      cp.add(mir);
+    }
   }
 
   setCameraMode(mode) {

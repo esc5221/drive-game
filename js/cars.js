@@ -83,6 +83,90 @@ export const CARS = {
     visual: { color: 0xf2c200, accent: 0x111111, wing: 'gt', roofY: 0.58, rearY: 0.40 },
     dialMax: 10, dialRed: 9, dialSpeed: 340,
   },
+
+  kart: {
+    id: 'kart',
+    name: '시프터 카트',
+    mass: 170,                       // kart + driver (KZ class min)
+    inertia: [90, 120, 45],
+    comH: 0.24,
+    drive: 'RWD',                    // solid rear axle, no diff
+    wheels: {
+      fz: -0.52, rz: 0.55, htF: 0.58, htR: 0.62,
+      attachY: 0.12, restLen: 0.06, radius: 0.14, iw: 0.85,
+      kF: 130000, kR: 150000,        // essentially no suspension — frame flex only
+      cBF: 4200, cRF: 5200, cBR: 4600, cRR: 5600,
+      maxC: 0.05, muF: 1.45, muR: 1.5,   // huge grip-to-weight
+    },
+    arbF: 40000, arbR: 30000,
+    engine: {                        // 125cc 2-stroke, peaky powerband
+      rpm: [2500, 5000, 7000, 9000, 10500, 11500, 12500, 13200, 14000, 14600],
+      nm:  [8,    13,   19,   26,   32,    35,    34,    31,    25,    9],
+      idle: 2800, redline: 14000, engBrake: [10, 0.006], shiftDown: 8500,
+    },
+    gears: [3.85, 2.95, 2.30, 1.82, 1.42, 1.05], final: 4.90, reverse: 3.0,
+    brakeT: 1750, bias: 0.46,
+    aero: { cda: 0.55, cla: 0.02 },
+    audio: {
+      cyl: 2, turbo: false,          // 2-cyl firing rate ~ a 2-stroke single's buzz
+      orders: [1, 0.5, 1.5, 2, 3, 1.02],
+      gains:  [0.5, 0.2, 0.3, 0.2, 0.12, 0.24],
+      tone: 2200, rasp: 0.7, pops: 0.2, intake: 0.6, sub: 0.05,
+    },
+    // tiny screaming 2-stroke: short pipe = high pitch, bright, ringing
+    engine_model: {
+      cyl: 2, intakeLen: 42, exhaustLen: 38, extractorLen: 40,
+      straightPipeLen: 50, mufflerElements: [4, 6, 8, 10], mufflerAction: 0.10,
+      ignitionTime: 0.010, intakeOpen: 0.2, intakeClosed: 0.9,
+      exhaustOpen: 0.2, exhaustClosed: 0.95,
+      cylRefl: 0.68, pistonAmp: 0.8,
+      outletGain: 1.05, intakeMix: 1.0, blockMix: 0.8, decelPops: 0.4, level: 0.5,
+    },
+    visual: { type: 'kart', color: 0xe23b2e, accent: 0x111111 },
+    dialMax: 16, dialRed: 14, dialSpeed: 160,
+  },
+
+  f1: {
+    id: 'f1',
+    name: 'F1 머신',
+    mass: 798,                       // 2024 regulation minimum
+    inertia: [900, 1150, 340],       // low, long, centralized mass = agile
+    comH: 0.30,
+    drive: 'RWD',
+    wheels: {
+      fz: -1.72, rz: 1.88, htF: 0.92, htR: 0.94,
+      attachY: 0.18, restLen: 0.10, radius: 0.34, iw: 1.5,
+      kF: 220000, kR: 260000,        // very stiff (aero platform)
+      cBF: 11000, cRF: 16000, cBR: 12000, cRR: 17000,
+      maxC: 0.07, muF: 1.55, muR: 1.6,   // slicks; downforce does the rest
+    },
+    arbF: 90000, arbR: 70000,
+    engine: {                        // 1.6 V6 turbo hybrid, ~1000 hp incl ERS
+      rpm: [4000, 6000, 8000, 9000, 10000, 10800, 11500, 12200, 12800, 13200],
+      nm:  [300,  430,  540,  600,  640,   650,   640,   615,   560,   200],
+      idle: 4000, redline: 13000, engBrake: [40, 0.02], shiftDown: 6500,
+    },
+    gears: [2.80, 2.20, 1.80, 1.50, 1.28, 1.12, 1.00, 0.92], final: 5.00, reverse: 3.2,
+    brakeT: 9500, bias: 0.58,
+    aero: { cda: 1.20, cla: 5.5 },   // huge downforce — ~2x weight at 250 km/h
+    audio: {
+      cyl: 6, turbo: true,
+      orders: [1, 0.5, 1.5, 2, 3, 1.03],
+      gains:  [0.4, 0.12, 0.34, 0.24, 0.18, 0.26],
+      tone: 2600, rasp: 0.5, pops: 0.5, intake: 0.9, sub: 0.06,
+    },
+    // high-revving V6 turbo scream — short bright pipe, strong mech zing
+    engine_model: {
+      cyl: 6, intakeLen: 55, exhaustLen: 48, extractorLen: 52,
+      straightPipeLen: 64, mufflerElements: [5, 7, 9, 12], mufflerAction: 0.10,
+      ignitionTime: 0.009, intakeOpen: 0.22, intakeClosed: 0.9,
+      exhaustOpen: 0.22, exhaustClosed: 0.95,
+      cylRefl: 0.6, pistonAmp: 0.85,
+      outletGain: 1.0, intakeMix: 1.1, blockMix: 0.9, decelPops: 0.45, level: 0.52,
+    },
+    visual: { type: 'formula', color: 0x1568c8, accent: 0xece81a, wing: 'gt' },
+    dialMax: 14, dialRed: 13, dialSpeed: 360,
+  },
 };
 
 export function savedCarId() {
