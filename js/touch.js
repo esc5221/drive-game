@@ -50,7 +50,20 @@ export class TouchInput {
     this.brakeBtn = BTN('t-brake', 'BRK', 'pedal brake');
     this.hbBtn = BTN('t-hb', 'HB', 'small');
 
-    root.append(this.leftBtn, this.rightBtn, this.gasBtn, this.brakeBtn, this.hbBtn);
+    // manual-only sequential shift pads, stacked above GAS (hidden by default)
+    this.upBtn = BTN('t-up', '＋', 'shift');
+    this.downBtn = BTN('t-down', '－', 'shift');
+    for (const [el, code] of [[this.upBtn, 'ArrowUp'], [this.downBtn, 'ArrowDown']]) {
+      el.style.display = 'none';
+      el.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        this.anyInput = true;
+        if (this.onKey) this.onKey(code);
+      });
+    }
+
+    root.append(this.leftBtn, this.rightBtn, this.gasBtn, this.brakeBtn, this.hbBtn,
+      this.upBtn, this.downBtn);
 
     // minimal in-game bar: pause/settings + reset only (rest lives in settings)
     const bar = document.createElement('div');
@@ -93,6 +106,13 @@ export class TouchInput {
     this.leftBtn.style.display = tilt ? 'none' : 'flex';
     this.rightBtn.style.display = tilt ? 'none' : 'flex';
     if (tilt) this._tiltZero = this._lastBeta;     // recenter on enable
+  }
+
+  // show/hide the gear pads when manual transmission is toggled
+  setManual(on) {
+    const d = on ? 'flex' : 'none';
+    this.upBtn.style.display = d;
+    this.downBtn.style.display = d;
   }
 
   _listenTilt() {

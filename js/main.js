@@ -87,6 +87,7 @@ input.onKey = code => {
     case 'KeyM':
       vehicle.auto = !vehicle.auto;
       if (vehicle.gear < 1) vehicle.gear = 1;
+      if (TOUCH) input.setManual(!vehicle.auto);
       hud.flash(vehicle.auto ? 'AUTOMATIC' : 'MANUAL — ↑ 업시프트 / ↓ 다운시프트, W/S 페달');
       break;
     case 'KeyT':
@@ -163,7 +164,7 @@ const settings = new SettingsPanel({
   toggle: name => {
     if (name === 'tc') vehicle.tc = !vehicle.tc;
     else if (name === 'abs') vehicle.abs = !vehicle.abs;
-    else if (name === 'auto') { vehicle.auto = !vehicle.auto; if (vehicle.gear < 1) vehicle.gear = 1; }
+    else if (name === 'auto') { vehicle.auto = !vehicle.auto; if (vehicle.gear < 1) vehicle.gear = 1; if (TOUCH) input.setManual(!vehicle.auto); }
     else if (name === 'ghost') ghost.enabled = !ghost.enabled;
   },
   resetRecords: () => {
