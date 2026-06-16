@@ -84,6 +84,47 @@ export const CARS = {
     dialMax: 10, dialRed: 9, dialSpeed: 340,
   },
 
+  gt3rs: {
+    id: 'gt3rs',
+    name: '911 GT3 RS',
+    mass: 1525,                          // 992.1 GT3 RS, full aero package
+    inertia: [2440, 2760, 660],
+    comH: 0.39,
+    drive: 'RWD',
+    wheels: {
+      fz: -1.50, rz: 0.96, htF: 0.84, htR: 0.88,
+      attachY: 0.21, restLen: 0.26, radius: 0.34, iw: 1.4,
+      kF: 78000, kR: 104000, cBF: 4800, cRF: 7600, cBR: 7000, cRR: 11000,   // stiff track setup
+      maxC: 0.15, muF: 1.20, muR: 1.26,            // Cup 2 R + downforce traction
+    },
+    arbF: 42000, arbR: 28000,
+    engine: {                            // 4.0 NA flat-6, 518 hp, 465 Nm @ 6300, 9000 rpm
+      rpm: [900, 1500, 2500, 3500, 4500, 5500, 6300, 7000, 7800, 8500, 9000, 9300],
+      nm:  [185, 250,  315,  350,  395,  440,  465,  462,  452,  438,  412,  95],
+      idle: 950, redline: 9000, engBrake: [26, 0.015], shiftDown: 3600,
+    },
+    gears: [3.91, 2.44, 1.76, 1.37, 1.13, 0.97, 0.85], final: 4.30, reverse: 3.5,
+    brakeT: 6900, bias: 0.60,
+    aero: { cda: 1.06, cla: 2.30 },                // huge DRS wing: ~410kg@200, ~860kg@285 (≈3× GT3)
+    audio: {
+      cyl: 6, turbo: false,
+      orders: [1, 0.5, 1.5, 2, 3, 1.03],
+      gains:  [0.40, 0.12, 0.34, 0.24, 0.16, 0.26],
+      tone: 1800, rasp: 0.60, pops: 0.45, intake: 0.85, sub: 0.07,
+    },
+    // flat-6 NA, motorsport-derived — screams to 9000 with strong high-rpm
+    // harmonics. (Tuned further in a later audio pass vs a 992 RS spectrogram.)
+    engine_model: {
+      cyl: 6, intakeLen: 80, exhaustLen: 60, extractorLen: 74,
+      straightPipeLen: 84, mufflerElements: [6, 9, 13, 17], mufflerAction: 0.10,
+      ignitionTime: 0.011, intakeOpen: 0.24, intakeClosed: 0.9,
+      exhaustOpen: 0.24, exhaustClosed: 0.95,
+      outletGain: 1.05, intakeMix: 1.0, blockMix: 0.92, decelPops: 0.3, level: 0.55,
+    },
+    visual: { color: 0xa7d84b, accent: 0x111111, wing: 'gt', roofY: 0.57, rearY: 0.40 },
+    dialMax: 10, dialRed: 9, dialSpeed: 320,
+  },
+
   kart: {
     id: 'kart',
     hidden: true,                    // temporarily hidden from menu/UI (data kept)
