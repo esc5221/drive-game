@@ -39,7 +39,7 @@ T  TC+스태빌리티      B  ABS      P  일시정지      H  도움말
 - 포스트: UnrealBloom + 속도 연동 radial blur + 비네트 (120fps 유지)
 - 시간대: N키 — 정오 / 아침 안개(Eifel) / 석양
 - 트랙: 러버 레코딩 라인, 카루셀 콘크리트 슬래브, 브레이킹 마커(100/50),
-  km 포스트, BILSTEIN 다리, 광고판, 노면 그래피티(BTG 등)
+  km 포스트, 스폰서 다리(bwchoi.com), 광고판, 노면 그래피티(BTG 등)
 - 월드: 실제 DEM 광역 지형(8×6.6km, 표고 292~723m), 침엽수+활엽수 2만 그루,
   Breidscheid 마을, Brünnchen 캠핑/깃발
 - 고스트 랩: 베스트 랩 자동 저장/재생(G), 실시간 델타(±초) 표시
@@ -79,3 +79,29 @@ tools/test_*.py        Playwright 헤드리스 검증 (물리/핸들링/통합)
 - 어시스트(키보드 친화): TC + ESP식 횡슬립 스로틀컷 + 카운터스티어(T로 끔), ABS(B)
 - 뱅킹: 곡률 기반 합성, Karussell/Mini-Karussell은 ~16° 콘크리트 보울
 - 실측 고도 347~622m (Flugplatz 점프, Fuchsröhre 압축 재현됨)
+
+## Data & Credits
+
+This project bundles third-party data — please retain these credits:
+
+- **Track geometry** — © [OpenStreetMap](https://www.openstreetmap.org/copyright)
+  contributors, licensed under the **Open Database License (ODbL) 1.0**. Derived
+  from OSM via the Overpass API; `js/track_data.js` and `js/tracks/spa.js` are a
+  produced work and remain subject to the ODbL.
+- **Elevation** — [open-elevation.com](https://open-elevation.com/) (SRTM, public domain).
+- **Engine sound** — ported from
+  [engine-sound-generator](https://github.com/Antonio-R1/engine-sound-generator)
+  © 2021–2022 Antonio-R1, MIT License.
+- **Fonts** — Google Fonts: Doto, Space Grotesk, Space Mono, Noto Sans KR (OFL / Apache 2.0).
+
+## License
+
+- **Code** — MIT (see [LICENSE](LICENSE)).
+- **Track data** — ODbL 1.0 (derived from OpenStreetMap).
+
+## Disclaimer
+
+Fan project, non-commercial. Car names, track names and other marks belong to
+their respective owners and are used for identification purposes only. Not
+affiliated with or endorsed by Hyundai, Porsche, Nürburgring GmbH, or any
+trademark holder.

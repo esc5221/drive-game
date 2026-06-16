@@ -798,7 +798,7 @@ function addAdBridge(scene, track) {
   beam.position.y = 6.2;
   beam.castShadow = true;
   g.add(beam);
-  const tex = textPanel('B I L S T E I N', { w: 1024, h: 128, bg: '#f5d020', fg: '#0a2e5c', size: 84 });
+  const tex = textPanel('bwchoi.com', { w: 1024, h: 128, bg: '#f5d020', fg: '#0a2e5c', size: 104 });
   for (const off of [-0.62, 0.62]) {
     const banner = new THREE.Mesh(new THREE.PlaneGeometry((RAIL_D + 1.5) * 2, 1.4),
       new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
