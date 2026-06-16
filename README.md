@@ -1,12 +1,14 @@
 # Nürburgring Drive
 
+First-person Nürburgring driving simulator (web + Android) — **▸ Play at [drive-game.pages.dev](https://drive-game.pages.dev)**
+
 ![Nürburgring Drive](docs/hero.png)
 
 A first-person driving simulator running on **real OpenStreetMap track geometry** —
 Three.js rendering over a hand-written **240 Hz vehicle physics engine**. One
 codebase, shipped to web and Android (Capacitor).
 
-**▸ Play — [drive-game.pages.dev](https://drive-game.pages.dev)**  ·  [System Overview](https://drive-game.pages.dev/data/game_logic.html)
+**System Overview — [drive-game.pages.dev/data/game_logic.html](https://drive-game.pages.dev/data/game_logic.html)**
 
 ## Features
 
