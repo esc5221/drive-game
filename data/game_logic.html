@@ -65,11 +65,11 @@
   .sec-num { font-family:var(--mono); font-weight:700; font-size:13px; color:var(--accent); letter-spacing:0.06em; }
   .sec-name { font-family:var(--sans); font-weight:600; font-size:26px; line-height:1.15; letter-spacing:-0.01em; color:var(--ink); margin:12px 0 14px; }
   .sec-aside p { font-size:13px; line-height:1.6; color:var(--muted); }
-  .sec-body > * + * { margin-top:16px; }
+  .sec-body > * + * { margin-top:22px; }
 
   /* ---- cards ---- */
-  .duo { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:22px; }
+  .duo { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:24px 26px; }
   .card .tag { margin-bottom:14px; }
   .card h3 { font-size:16px; font-weight:600; color:var(--ink); margin-bottom:8px; }
   .card p { font-size:13.5px; color:var(--muted); line-height:1.6; }
@@ -78,15 +78,15 @@
   sub { font-size:0.75em; }
 
   /* ---- stat rows ---- */
-  .rows { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:6px 20px; }
-  .row { display:flex; justify-content:space-between; align-items:baseline; padding:14px 0; border-top:1px solid var(--line); }
+  .rows { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:10px 24px; }
+  .row { display:flex; justify-content:space-between; align-items:baseline; padding:15px 0; border-top:1px solid var(--line); }
   .row:first-child { border-top:0; }
   .row .v { font-family:var(--mono); font-size:14px; color:var(--ink); }
   .row .v .u { color:var(--muted); font-size:11px; margin-left:3px; }
 
   /* ---- shift band ---- */
-  .shift { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  .band { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:22px; }
+  .shift { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .band { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:24px 26px; }
   .seg { display:flex; gap:2px; margin:14px 0 7px; height:13px; }
   .seg span { flex:1; background:var(--line-strong); border-radius:1px; }
   .seg span.on { background:var(--ink); }
@@ -356,7 +356,6 @@
   </div>
   <div class="foot">
     <span class="big">Nordschleife Sim</span>
-    <span class="label">Three.js · Custom Physics · Capacitor</span>
   </div>
 </footer>
 
