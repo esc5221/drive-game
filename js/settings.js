@@ -56,7 +56,7 @@ export class SettingsPanel {
     };
 
     card.appendChild(ROW('차량', group('car',
-      Object.values(CARS).map(c => [c.name, () => this.api.setCar(c.id)]))));
+      Object.values(CARS).filter(c => !c.hidden).map(c => [c.name, () => this.api.setCar(c.id)]))));
 
     if (this.api.isTouch) {
       card.appendChild(ROW('조향', group('ctrl', [
@@ -87,11 +87,13 @@ export class SettingsPanel {
       ...group('ghost', [['고스트', () => this.api.toggle('ghost')]]),
     ]));
 
-    card.appendChild(ROW('시간대', group('preset', [
+    card.appendChild(ROW('날씨 / 시간', group('preset', [
       ['정오', () => this.api.setPreset(0)],
       ['아침 안개', () => this.api.setPreset(1)],
       ['석양', () => this.api.setPreset(2)],
       ['밤', () => this.api.setPreset(3)],
+      ['비', () => this.api.setPreset(4)],
+      ['밤+가로등', () => this.api.setPreset(5)],
     ])));
 
     card.appendChild(ROW('그래픽 (변경 시 재시작)', group('tier', [
@@ -123,7 +125,7 @@ export class SettingsPanel {
 
   refresh() {
     const s = this.api.getState();
-    const carIds = Object.keys(CARS);
+    const carIds = Object.values(CARS).filter(c => !c.hidden).map(c => c.id);
     this._mark('car', carIds.indexOf(s.car));
     if (this.btns.ctrl) this._mark('ctrl', s.ctrl === 'tilt' ? 1 : 0);
     this._mark('cam', s.cam);

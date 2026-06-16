@@ -296,6 +296,110 @@ export function buildWorld(scene, track, opts = {}) {
   addGraffiti(scene, track);
   addVillage(scene, track);
   addSpectators(scene, track);
+
+  const streetlights = addStreetlights(scene, track);
+  return { roadMat, streetlights };
+}
+
+// Street lamps along the track — hidden by default, shown for the night-lit
+// preset. Poles/heads/light-pools are instanced; a small pool of real
+// PointLights (placed near the car each frame, in main.js) does the actual lit
+// road. headPos feeds that nearest-lamp search.
+function addStreetlights(scene, track) {
+  const group = new THREE.Group();
+  group.visible = false;
+  scene.add(group);
+
+  const v = new THREE.Vector3();
+  const step = 62, n = Math.floor(track.total / step);
+  const lamps = [];
+  for (let k = 0; k < n; k++) {
+    const i = Math.round((k * step) / track.step) % track.n;
+    const side = (k % 2) ? 1 : -1;                 // alternate sides
+    track.edge(i, side * (RAIL_D + 0.6), 0, v);
+    const gy = worldGround(track, v.x, v.z);
+    lamps.push({ x: v.x, y: gy, z: v.z, side, i, yaw: Math.atan2(track.tx[i], track.tz[i]) });
+  }
+
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x26292e, metalness: 0.6, roughness: 0.5 });
+  const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.11, 0.17, 7.2, 6), poleMat, lamps.length);
+  const headMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, emissive: 0xffd49a, emissiveIntensity: 4 });
+  const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.22, 1.05), headMat, lamps.length);
+  // soft, slightly-blotchy radial cookie — no hard disc edge
+  const poolMat = new THREE.MeshBasicMaterial({
+    map: lampPoolTexture(), color: 0xffc27a, transparent: true, opacity: 0.7,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+  });
+  const pools = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 32), poolMat, lamps.length);
+  pools.renderOrder = 4;
+
+  const r = rng(20260614);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  const one = new THREE.Vector3(1, 1, 1);
+  const poolPos = new THREE.Vector3(), tangent = new THREE.Vector3(), right = new THREE.Vector3(), normal = new THREE.Vector3();
+  const xA = new THREE.Vector3(), yA = new THREE.Vector3();
+  const headPos = [];
+  for (let k = 0; k < lamps.length; k++) {
+    const L = lamps[k];
+    const inX = -L.side * track.rx[L.i], inZ = -L.side * track.rz[L.i];   // toward the road
+    m.makeTranslation(L.x, L.y + 3.6, L.z); poles.setMatrixAt(k, m);
+    const hx = L.x + inX * 2.6, hz = L.z + inZ * 2.6, hy = L.y + 6.9;
+    e.set(0, L.yaw, 0); q.setFromEuler(e);
+    m.compose(new THREE.Vector3(hx, hy, hz), q, one); heads.setMatrixAt(k, m);
+    headPos.push(hx, hy, hz);
+
+    // light pool: cast ONTO the road (slightly to the lamp's side of center),
+    // oriented in the road's plane — an ellipse stretched along the road, so it
+    // reads as real side-mounted lighting regardless of which side the lamp is on.
+    const dim = r() < 0.12 ? 0 : (0.82 + r() * 0.36);    // occasional dead lamp + variation
+    track.edge(L.i, L.side * (0.5 + r() * 0.5), 0.04, poolPos);
+    const qy = track.query(poolPos.x, poolPos.z, {});
+    if (qy && dim > 0) {
+      tangent.set(qy.tx, qy.ty, qy.tz).normalize();
+      const cr = Math.cos(qy.roll), sr = Math.sin(qy.roll);
+      right.set(qy.rx * cr, sr, qy.rz * cr).normalize();
+      normal.set(qy.nx, qy.ny, qy.nz).normalize();
+      poolPos.addScaledVector(normal, 0.04);
+      const alongR = (11.0 + r() * 2.5) * dim, acrossR = (3.2 + r() * 0.7) * dim;
+      xA.copy(right).multiplyScalar(acrossR);
+      yA.copy(tangent).multiplyScalar(alongR);
+      m.makeBasis(xA, yA, normal); m.setPosition(poolPos);
+    } else {
+      m.makeScale(0, 0, 0);     // hidden (dead lamp / off-track query)
+    }
+    pools.setMatrixAt(k, m);
+  }
+  group.add(poles, heads, pools);
+  return { group, headPos: new Float32Array(headPos) };
+}
+
+// soft warm radial falloff with low-frequency breakup (not a perfect disc)
+function lampPoolTexture() {
+  const S = 256;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  grad.addColorStop(0.00, 'rgba(255,225,170,0.95)');
+  grad.addColorStop(0.22, 'rgba(255,205,130,0.55)');
+  grad.addColorStop(0.55, 'rgba(255,180,90,0.18)');
+  grad.addColorStop(0.82, 'rgba(255,160,60,0.04)');
+  grad.addColorStop(1.00, 'rgba(255,140,40,0.0)');
+  g.fillStyle = grad; g.fillRect(0, 0, S, S);
+  // subtract a few soft blotches so the edge isn't a clean circle
+  const rr = rng(4242);
+  g.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 9; i++) {
+    const a = rr() * Math.PI * 2, rad = (0.45 + rr() * 0.5) * S / 2;
+    const bx = S / 2 + Math.cos(a) * rad, by = S / 2 + Math.sin(a) * rad;
+    const br = 18 + rr() * 46;
+    const bg = g.createRadialGradient(bx, by, 0, bx, by, br);
+    bg.addColorStop(0, `rgba(0,0,0,${0.25 + rr() * 0.4})`); bg.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = bg; g.fillRect(bx - br, by - br, br * 2, br * 2);
+  }
+  g.globalCompositeOperation = 'source-over';
+  const t = new THREE.CanvasTexture(c);
+  return t;
 }
 
 function addKarussellConcrete(scene, track) {

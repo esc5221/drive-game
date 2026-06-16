@@ -54,6 +54,9 @@ export class CarAudio {
     this.grass = noiseSrc('lowpass', 220, 0.8);
     this.scrapeN = noiseSrc('highpass', 1800, 1.0);
     this.brakeRub = noiseSrc('bandpass', 1400, 1.6);  // pad-on-disc friction hiss
+    this.rain = noiseSrc('highpass', 1100, 0.3);      // rain hiss (weather)
+    this.rainLow = noiseSrc('bandpass', 420, 0.6);    // heavier drumming layer
+    this._rainOn = false;
 
     // brake squeal: a high tonal cry (two detuned partials) gated by braking
     this.bsOsc1 = ctx.createOscillator(); this.bsOsc1.type = 'sawtooth'; this.bsOsc1.frequency.value = 3100;
@@ -133,6 +136,14 @@ export class CarAudio {
   setEngine(spec) {
     if (!this.started) { this._engineSpec = spec; return; }
     this._buildEngine(spec);
+  }
+
+  setRain(on) {
+    this._rainOn = on;
+    if (!this.started) return;
+    const t = this.ctx.currentTime;
+    this.rain.g.gain.setTargetAtTime(on ? 0.06 : 0, t, 0.8);
+    this.rainLow.g.gain.setTargetAtTime(on ? 0.022 : 0, t, 0.8);
   }
 
   update(vehicle, dt) {

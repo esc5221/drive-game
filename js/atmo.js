@@ -29,6 +29,20 @@ const PRESETS = [
     fogColor: 0x05080f, fogNear: 70, fogFar: 540, exposure: 0.85, skyGain: 0.05,
     night: true, moonElev: 42, moonAzim: 305,
   },
+  {
+    name: '비 (Rain)',
+    elev: 38, azim: 150, turbidity: 12, rayleigh: 1.3, mieG: 0.82, mieCoeff: 0.020,
+    sunColor: 0xb6bcc4, sunInt: 1.0, hemiInt: 0.62,
+    fogColor: 0x97a0a8, fogNear: 80, fogFar: 720, exposure: 0.60, skyGain: 0.12,
+    rain: true, wet: true, grip: 0.72,
+  },
+  {
+    name: '밤 + 가로등 (Night Lit)',
+    elev: -14, azim: 0, turbidity: 2, rayleigh: 0.5, mieG: 0.7, mieCoeff: 0.002,
+    sunColor: 0x9fb2d4, sunInt: 0.18, hemiInt: 0.10,
+    fogColor: 0x080b14, fogNear: 80, fogFar: 600, exposure: 0.90, skyGain: 0.05,
+    night: true, moonElev: 42, moonAzim: 305, streetlights: true,
+  },
 ];
 
 export class Atmosphere {
@@ -93,6 +107,10 @@ export class Atmosphere {
     this.sunDir.setFromSphericalCoords(1, phi, theta);
     u.sunPosition.value.copy(this.sunDir);
     this.isNight = !!p.night;
+    this.rain = !!p.rain;            // rain particles + wiper sound
+    this.wet = !!p.wet;              // wet, reflective road surface
+    this.streetlights = !!p.streetlights;
+    this.grip = p.grip != null ? p.grip : 1;   // weather grip multiplier
     if (p.night) {
       // sky sun sits below the horizon, but the LIGHT comes from the moon
       this.sunDir.setFromSphericalCoords(1,

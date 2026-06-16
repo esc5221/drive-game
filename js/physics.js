@@ -10,6 +10,10 @@ export const DT = 1 / 240;
 // surface grip
 const MU = { [SURF.ROAD]: 1.22, [SURF.CURB]: 1.10, [SURF.GRASS]: 0.55 };
 
+// global grip multiplier for weather (1 = dry, <1 = wet/slippery)
+export let WEATHER_GRIP = 1;
+export function setWeatherGrip(g) { WEATHER_GRIP = g; }
+
 // engine torque from the car spec's curve
 const DRIVE_EFF = 0.90;
 
@@ -164,34 +168,59 @@ export class Vehicle {
 
     const sp = this.spec, ENG = sp.engine;
 
-    // ---- shift logic
-    if (this.shiftTimer > 0) this.shiftTimer -= dt;
-    if (this.shiftCooldown > 0) this.shiftCooldown -= dt;
-    if (this.auto && this.gear >= 1 && this.shiftTimer <= 0 && this.shiftCooldown <= 0) {
-      if (this.rpm > ENG.redline - 350 && this.gear < sp.gears.length) { this.gear++; this.shiftTimer = 0.15; this.shiftCooldown = 0.5; }
-      else if (this.rpm < ENG.shiftDown && this.gear > 1 && this.ctrl.brake < 0.7) { this.gear--; this.shiftTimer = 0.13; this.shiftCooldown = 0.4; }
-    }
-
-    // ---- engine & drivetrain
+    // ---- engine & drivetrain (computed BEFORE shift logic so the gearbox sees
+    // a wheelspin-immune engine speed and never false-shifts off a launch spike)
     const reverse = this.gear === -1;
     const ratio = (reverse ? sp.reverse : sp.gears[Math.max(0, this.gear - 1)]) * sp.final;
     const di = this.drivenFront ? 0 : 2;            // driven axle index
     const wAvg = (this.wheels[di].omega + this.wheels[di + 1].omega) / 2;
     let rpmFromWheels = Math.abs(wAvg) * ratio * 60 / (2 * Math.PI);
-    this.rpm = Math.max(ENG.idle, Math.min(rpmFromWheels, ENG.redline + 200));
-    // launch: below clutch-lock speed the clutch slips and revs sit high in
-    // the powerband (a kart/F1 launches at high rpm, not just off idle).
-    const clutchLocked = Math.abs(vFwd) > 4.0;
-    if (!clutchLocked) {
-      this.rpm = Math.max(this.rpm, ENG.idle + this.ctrl.throttle * (ENG.redline - ENG.idle) * 0.5);
+    // road-speed rpm: what the engine WOULD turn with no wheelspin. Used for
+    // shift decisions so a spinning wheel can't spike revs past the upshift line.
+    const roadRpm = Math.abs(vFwd) / this.wheels[di].radius * ratio * 60 / (2 * Math.PI);
+    // launch clutch: in 1st gear under throttle, the clutch slips and holds the
+    // engine high in the powerband until the wheels spin up to meet it, then
+    // locks. (A real hard launch slips the clutch to ~30-40 km/h — without this
+    // the revs crater the instant the clutch grabs and the car bogs.)
+    const launchRpm = ENG.idle + this.ctrl.throttle * (ENG.redline - ENG.idle) * 0.55;
+    const launching = this.gear === 1 && this.ctrl.throttle > 0.2 &&
+                      roadRpm < launchRpm * 0.92;
+    const clutchLocked = !launching;
+    if (launching) this.rpm = Math.max(ENG.idle, launchRpm);
+    else this.rpm = Math.max(ENG.idle, Math.min(rpmFromWheels, ENG.redline + 200));
+
+    // ---- shift logic (uses roadRpm: immune to wheelspin spikes; blocks
+    // upshifts while launching or near standstill)
+    if (this.shiftTimer > 0) this.shiftTimer -= dt;
+    if (this.shiftCooldown > 0) this.shiftCooldown -= dt;
+    if (this.auto && this.gear >= 1 && this.shiftTimer <= 0 && this.shiftCooldown <= 0 && !launching) {
+      // Classic, predictable auto-shift — what most racing games actually do:
+      // upshift near the limiter, downshift once the revs fall below the band.
+      // rpm comes from road speed (wheelspin-immune) so a launch can't false-shift,
+      // and lifting off lets revs fall naturally → no upshift while coasting.
+      if (roadRpm > ENG.redline - 350 && this.gear < sp.gears.length) {
+        this.gear++; this.shiftTimer = 0.15; this.shiftCooldown = 0.5;
+      } else if (roadRpm < ENG.shiftDown && this.gear > 1 && this.ctrl.brake < 0.7) {
+        this.gear--; this.shiftTimer = 0.13; this.shiftCooldown = 0.4;
+      }
     }
 
     let thr = this.ctrl.throttle * (1 - this.tcCut);
     if (this.shiftTimer > 0) thr = 0;
     if (this.rpm >= ENG.redline) thr = 0;                          // limiter
     let tEngine = engineTorque(ENG, this.rpm) * thr;
-    const tEngineBrake = (ENG.engBrake[0] + ENG.engBrake[1] * this.rpm) * (1 - thr) * (clutchLocked ? 1 : 0);
-    let tAxle = (tEngine - tEngineBrake) * ratio * DRIVE_EFF * (reverse ? -1 : 1);
+    // clutch is OPEN during a gear change — no drive AND no engine braking.
+    // (Otherwise engine-brake torque, multiplied by the gear ratio, slams the
+    // car on every upshift — brutal on light/small-wheel vehicles like the kart.)
+    const clutchEngaged = clutchLocked && this.shiftTimer <= 0;
+    // drive torque: engine spins the wheels in the gear's direction
+    let tAxle = tEngine * ratio * DRIVE_EFF * (reverse ? -1 : 1);
+    // engine braking RESISTS wheel rotation — it acts opposite to the driven
+    // wheels' spin and must fade to zero at rest, otherwise it pushes a stopped
+    // car backwards (worst on the light, short-geared kart) into a runaway.
+    const ebMag = (ENG.engBrake[0] + ENG.engBrake[1] * this.rpm) * (1 - thr) *
+                  (clutchEngaged ? 1 : 0) * ratio * DRIVE_EFF;
+    tAxle -= Math.sign(wAvg) * Math.min(1, Math.abs(wAvg) / 3) * ebMag;
     if (this.gear === 0) tAxle = 0;
 
     // LSD on the driven axle
@@ -282,7 +311,7 @@ export class Vehicle {
         w.slipRatio = slipRatio; w.slipAngle = slipAngle;
 
         // load sensitivity
-        let mu = MU[w.surf] * w.muScale * (1 - 2.2e-5 * Math.max(0, load - 3400));
+        let mu = MU[w.surf] * w.muScale * WEATHER_GRIP * (1 - 2.2e-5 * Math.max(0, load - 3400));
         const kp = 0.10, ap = 0.14;
         const sx = slipRatio / kp, sy = slipAngle / ap;
         const rho = Math.max(1e-4, Math.hypot(sx, sy));
@@ -308,7 +337,9 @@ export class Vehicle {
         // assists bookkeeping
         const driven = w.front === this.drivenFront;
         if (driven && this.ctrl.throttle > 0.1) {
-          if (slipRatio > 0.18) tcWorst = Math.max(tcWorst, slipRatio);
+          // hold wheelspin near the tire's peak-grip slip (~0.10-0.15) instead of
+          // slamming the throttle shut: cut scales with slip EXCESS over target.
+          if (slipRatio > 0.15) tcWorst = Math.max(tcWorst, (slipRatio - 0.15) * 3.0);
           // ESP: FWD plow / RWD power-oversteer — both fixed by easing throttle
           const latEx = Math.abs(slipAngle) - (this.drivenFront ? 0.15 : 0.13);
           if (latEx > 0 && Math.abs(vLong) > 6) tcWorst = Math.max(tcWorst, latEx * (this.drivenFront ? 0.9 : 1.2));
@@ -342,7 +373,7 @@ export class Vehicle {
 
     // ---- TC
     if (this.tc) {
-      const target = tcWorst > 0 ? Math.min(0.85, tcWorst * 2.6) : 0;
+      const target = tcWorst > 0 ? Math.min(0.80, tcWorst * 1.7) : 0;
       this.tcCut += (target - this.tcCut) * Math.min(1, dt * 18);
     } else this.tcCut = 0;
 

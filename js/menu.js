@@ -52,6 +52,7 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart }) {
   const carWrap = ov.querySelector('#menu-cars');
 
   for (const t of TRACKS) {
+    if (t.hidden) continue;
     const card = document.createElement('div');
     card.className = 'menu-card' + (t.id === selTrack ? ' active' : '');
     card.innerHTML = `<canvas width="150" height="110"></canvas>
@@ -68,6 +69,7 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart }) {
   }
 
   for (const c of Object.values(CARS)) {
+    if (c.hidden) continue;
     const b = document.createElement('button');
     b.className = 'menu-carbtn' + (c.id === selCar ? ' active' : '');
     b.textContent = c.name;

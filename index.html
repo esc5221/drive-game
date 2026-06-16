@@ -101,8 +101,11 @@
   /* ---------- main menu ---------- */
   #menu { position: fixed; inset: 0; z-index: 80; pointer-events: auto; overflow-y: auto;
     background: radial-gradient(ellipse at 50% 0%, rgba(20,34,52,0.92), rgba(3,7,13,0.96));
-    display: flex; align-items: center; justify-content: center; }
-  #menu-inner { width: min(760px, 92vw); padding: 28px 26px; }
+    display: flex; align-items: flex-start; justify-content: center; }
+  #menu-inner { width: min(760px, 94vw); padding: 24px 26px;
+    margin: auto;                          /* center when it fits, scroll-from-top when it doesn't */
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom)); }
   #menu h1 { font-size: 30px; font-weight: 800; letter-spacing: 3px; color: #fff; margin: 0 0 6px; }
   #menu h1 span { color: #ffd24a; margin-left: 10px; }
   .menu-sec { font-size: 12px; letter-spacing: 2px; color: #8aa0b6; margin: 18px 0 8px; }
@@ -122,6 +125,19 @@
     letter-spacing: 3px; color: #07140e; background: linear-gradient(180deg,#7ee0a8,#46c483);
     border: none; border-radius: 11px; cursor: pointer; font-family: inherit; }
   #menu-start:hover { filter: brightness(1.08); }
+  /* compact layout for short (landscape phone) screens so nothing is clipped */
+  @media (max-height: 560px) {
+    #menu-inner { padding: 14px 20px; }
+    #menu h1 { font-size: 21px; margin-bottom: 2px; }
+    .menu-sec { margin: 9px 0 5px; }
+    #menu-tracks { gap: 8px; }
+    .menu-card { width: 132px; padding: 7px; }
+    .menu-card canvas { width: 118px; height: 78px; }
+    .mc-name { font-size: 12px; }
+    .mc-meta { font-size: 10px; }
+    .menu-carbtn { padding: 7px 12px; font-size: 13px; }
+    #menu-start { margin-top: 12px; padding: 11px; font-size: 15px; }
+  }
 
   #tap-start { position: fixed; inset: 0; z-index: 99; background: rgba(4,9,17,0.94);
     display: flex; align-items: center; justify-content: center; color: #fff;

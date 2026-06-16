@@ -428,8 +428,18 @@ export class CarVisual {
 
     // gauge cluster — on the dash (road) or on a small steering-column pod (open)
     const cluster = new THREE.Group();
-    cluster.position.set(drvX, open ? this.eyeLocal.y - 0.16 : 0.52, open ? this.eyeLocal.z - 0.46 : -0.86);
-    cluster.rotation.x = -0.30;
+    // open cars: gauges sit low on/just above the wheel (F1-style, on-wheel
+    // display) well below the sightline so the track ahead is clear.
+    if (open) {
+      // gauges sit on the wheel, ~0.5 m ahead and below the eye — in the lower
+      // third of the view (visible) without blocking the track ahead.
+      cluster.position.set(drvX, this.eyeLocal.y - 0.20, this.eyeLocal.z - 0.48);
+      cluster.scale.setScalar(0.55);
+      cluster.rotation.x = -0.5;
+    } else {
+      cluster.position.set(drvX, 0.52, -0.86);
+      cluster.rotation.x = -0.30;
+    }
     const backing = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.26, 0.03), darker);
     backing.position.set(0.07, 0, -0.018);
     cluster.add(backing);
@@ -492,8 +502,9 @@ export class CarVisual {
 
     // ---- steering wheel (flat bottom) + paddles + hands
     this.wheelGroup = new THREE.Group();
-    this.wheelGroup.position.set(drvX, open ? this.eyeLocal.y - 0.24 : 0.45, open ? this.eyeLocal.z - 0.34 : -0.70);
-    this.wheelGroup.rotation.x = open ? -0.62 : -0.42;   // open cars: more upright column
+    this.wheelGroup.position.set(drvX, open ? this.eyeLocal.y - 0.26 : 0.45, open ? this.eyeLocal.z - 0.50 : -0.70);
+    this.wheelGroup.rotation.x = open ? -0.5 : -0.42;   // open cars: wheel ~0.5m ahead, lower third of view
+    if (open) this.wheelGroup.scale.setScalar(0.82);
     const rimMat = new THREE.MeshStandardMaterial({ color: 0x22262e, roughness: 0.7 });
     this.wheelSpin = new THREE.Group();
     const rim = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.021, 12, 36, Math.PI * 1.72), rimMat);
@@ -592,8 +603,8 @@ export class CarVisual {
     // ---- arms: 2-bone IK (shoulder fixed to the seat, elbow via pole)
     const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x23272e, roughness: 0.92 });
     this.arms = [];
-    const shY = open ? this.eyeLocal.y - 0.12 : 0.61;
-    const shZ = open ? this.eyeLocal.z + 0.18 : -0.07;
+    const shY = open ? this.eyeLocal.y - 0.06 : 0.61;
+    const shZ = open ? this.eyeLocal.z + 0.16 : -0.07;
     this.shoulders = [
       new THREE.Vector3(drvX - 0.19, shY, shZ),  // left
       new THREE.Vector3(drvX + 0.19, shY, shZ),  // right
@@ -712,6 +723,53 @@ export class CarVisual {
       mir.rotation.x = -0.10;
       cp.add(mir);
     }
+
+    if (open) this._buildOpenBodywork(cp, V);
+  }
+
+  // What an open-wheel driver actually sees from the seat: the nose/bodywork
+  // ahead and below, cockpit sides, and (F1) the halo splitting the view.
+  _buildOpenBodywork(cp, V) {
+    const ey = this.eyeLocal.y, ez = this.eyeLocal.z;
+    const paint = new THREE.MeshStandardMaterial({ color: V.color, metalness: 0.3, roughness: 0.45 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x16181d, roughness: 0.7 });
+    if (this.type === 'formula') {
+      // nose deck stretching far ahead and dropping away — well below sightline
+      const nose = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.22, 2.2, 10), paint);
+      nose.rotation.x = Math.PI / 2;
+      nose.position.set(0, ey - 0.62, ez - 1.55);
+      cp.add(nose);
+      // cockpit coaming (survival-cell rim) low at the driver's sides
+      for (const sgn of [-1, 1]) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.14, 1.0), paint);
+        rail.position.set(sgn * 0.36, ey - 0.24, ez - 0.10);
+        cp.add(rail);
+      }
+      // halo: side mounts + ring arcing overhead (above the sightline, no center bar in view)
+      for (const sgn of [-1, 1]) {
+        const mnt = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.40, 8), dark);
+        mnt.position.set(sgn * 0.33, ey + 0.06, ez - 0.30);
+        mnt.rotation.x = 0.3;
+        cp.add(mnt);
+      }
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.028, 8, 20, Math.PI), dark);
+      ring.rotation.x = -0.5;
+      ring.position.set(0, ey + 0.30, ez - 0.30);
+      cp.add(ring);
+    } else { // kart
+      // front fairing / nose cone ahead and low
+      const fairing = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.13, 0.42), paint);
+      fairing.position.set(0, ey - 0.60, ez - 1.0);
+      cp.add(fairing);
+      const floor = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 1.2), dark);
+      floor.position.set(0, ey - 0.6, ez - 0.35);
+      cp.add(floor);
+      // steering column down to the wheel
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.42, 6), dark);
+      col.position.set(0, ey - 0.46, ez - 0.40);
+      col.rotation.x = 0.62;
+      cp.add(col);
+    }
   }
 
   setCameraMode(mode) {
@@ -791,8 +849,11 @@ export class CarVisual {
     // shift lights scale with the car's redline
     const redline = this.spec.engine.redline;
     const blink = (performance.now() * 0.012 | 0) % 2 === 0;
-    const atLimiter = vehicle.rpm > redline - 120;
-    const start = redline * 0.77, step = redline * 0.032;
+    // map the 5 lights to END just as the (full-throttle) upshift fires at
+    // redline-80, so the last LED lights right before the shift instead of ~800
+    // rpm early — no "lights full, still not shifting" dead zone.
+    const atLimiter = vehicle.rpm > redline - 80;
+    const start = redline * 0.85, step = (redline - 80 - redline * 0.85) / 4;
     for (let k = 0; k < 5; k++) {
       const led = this.shiftLeds[k];
       const on = atLimiter ? blink : vehicle.rpm > start + k * step;

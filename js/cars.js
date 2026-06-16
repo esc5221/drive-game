@@ -86,6 +86,7 @@ export const CARS = {
 
   kart: {
     id: 'kart',
+    hidden: true,                    // temporarily hidden from menu/UI (data kept)
     name: '시프터 카트',
     mass: 170,                       // kart + driver (KZ class min)
     inertia: [90, 120, 45],
@@ -93,15 +94,18 @@ export const CARS = {
     drive: 'RWD',                    // solid rear axle, no diff
     wheels: {
       fz: -0.52, rz: 0.55, htF: 0.58, htR: 0.62,
-      attachY: 0.12, restLen: 0.06, radius: 0.14, iw: 0.85,
-      kF: 130000, kR: 150000,        // essentially no suspension — frame flex only
-      cBF: 4200, cRF: 5200, cBR: 4600, cRR: 5600,
-      maxC: 0.05, muF: 1.45, muR: 1.5,   // huge grip-to-weight
+      attachY: 0.12, restLen: 0.10, radius: 0.14, iw: 0.85,
+      // a kart has no real springs, but the chassis/axle FLEXES — modelled as a
+      // soft suspension so all 4 wheels stay planted on uneven ground. (Too
+      // stiff and the rigid frame teeters on a diagonal pair and loses grip.)
+      kF: 42000, kR: 50000,
+      cBF: 2400, cRF: 3000, cBR: 2700, cRR: 3300,
+      maxC: 0.07, muF: 1.58, muR: 1.72,   // huge grip-to-weight (sticky slicks)
     },
     arbF: 40000, arbR: 30000,
     engine: {                        // 125cc 2-stroke, peaky powerband
       rpm: [2500, 5000, 7000, 9000, 10500, 11500, 12500, 13200, 14000, 14600],
-      nm:  [8,    13,   19,   26,   32,    35,    34,    31,    25,    9],
+      nm:  [10,   16,   23,   31,   38,    42,    41,    37,    30,    11],
       idle: 2800, redline: 14000, engBrake: [10, 0.006], shiftDown: 8500,
     },
     gears: [3.85, 2.95, 2.30, 1.82, 1.42, 1.05], final: 4.90, reverse: 3.0,
@@ -128,6 +132,7 @@ export const CARS = {
 
   f1: {
     id: 'f1',
+    hidden: true,                    // temporarily hidden from menu/UI (data kept)
     name: 'F1 머신',
     mass: 798,                       // 2024 regulation minimum
     inertia: [900, 1150, 340],       // low, long, centralized mass = agile
@@ -138,7 +143,7 @@ export const CARS = {
       attachY: 0.18, restLen: 0.10, radius: 0.34, iw: 1.5,
       kF: 220000, kR: 260000,        // very stiff (aero platform)
       cBF: 11000, cRF: 16000, cBR: 12000, cRR: 17000,
-      maxC: 0.07, muF: 1.55, muR: 1.6,   // slicks; downforce does the rest
+      maxC: 0.07, muF: 1.68, muR: 1.74,   // slicks; downforce does the rest
     },
     arbF: 90000, arbR: 70000,
     engine: {                        // 1.6 V6 turbo hybrid, ~1000 hp incl ERS
@@ -171,5 +176,5 @@ export const CARS = {
 
 export function savedCarId() {
   const id = localStorage.getItem('ns-car');
-  return CARS[id] ? id : 'avante';
+  return CARS[id] && !CARS[id].hidden ? id : 'avante';
 }

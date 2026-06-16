@@ -9,9 +9,10 @@ import { setDem, demHeight } from './terrain.js';
 import { trackMeta } from './tracks/index.js';
 import { showMenu } from './menu.js';
 import { Track, setTrackWidth } from './track.js';
-import { Vehicle, DT } from './physics.js';
+import { Vehicle, DT, setWeatherGrip } from './physics.js';
 import { buildWorld, groundHeightAt } from './world.js';
 import { Atmosphere } from './atmo.js';
+import { Rain } from './rain.js';
 import { Post } from './post.js';
 import { CarVisual } from './car.js';
 import { Input } from './input.js';
@@ -27,7 +28,10 @@ import { Ghost } from './ghost.js';
 import { RaceLine } from './raceline.js';
 
 const TRACK_DATA = { nordschleife: T_NORD, spa: T_SPA, practice: T_PRAC, kart: T_KART };
-const trackId = localStorage.getItem('ns-track') || 'nordschleife';
+const _savedTrack = localStorage.getItem('ns-track');
+// a saved hidden/removed track (e.g. kart) falls back to the default
+const trackId = (_savedTrack && TRACK_DATA[_savedTrack] && !trackMeta(_savedTrack).hidden)
+  ? _savedTrack : 'nordschleife';
 const TRACK = TRACK_DATA[trackId] || T_NORD;
 const tMeta = trackMeta(trackId);
 setTrackWidth(TRACK.roadHalf || 4.5);               // narrow kart track, wide road circuits
@@ -51,7 +55,20 @@ document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const atmo = new Atmosphere(scene, renderer, { shadow: TIER.shadow, farScale: TIER.farScale });
-buildWorld(scene, track, { trees: TIER.trees, aniso: TIER.aniso });
+const world = buildWorld(scene, track, { trees: TIER.trees, aniso: TIER.aniso });
+const roadMat = world.roadMat;
+const streetlights = world.streetlights;
+
+// rain + a small pool of moving street-lamp lights (placed near the car)
+const rain = new Rain(scene, renderer, Math.floor(5200 * (TIER.trees || 1)));
+const lampLights = [];
+for (let i = 0; i < (TIER.shadow > 0 ? 6 : 4); i++) {
+  const pl = new THREE.PointLight(0xffd9a0, 0, 28, 2);
+  scene.add(pl); lampLights.push(pl);
+}
+const lampBest = lampLights.map(() => ({ d: Infinity, i: -1 }));
+let lampsActive = false;
+const _roadColor0 = roadMat.color.clone();
 
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.06, 24000);
 const post = new Post(renderer, scene, camera, TIER);
@@ -135,9 +152,44 @@ input.onKey = code => {
   if (['ArrowUp', 'KeyW'].includes(code)) hud.toggleHelp(false);
 };
 
-// night state propagates to the headlights
+// environment state (preset) drives headlights, wet road, rain, streetlights, grip
 function applyNight() {
-  carVis.setHeadlights(atmo.isNight);
+  carVis.setHeadlights(atmo.isNight || atmo.rain);
+  rain.setActive(atmo.rain);
+  audio.setRain(atmo.rain);
+  setWeatherGrip(atmo.grip);
+  setWetRoad(atmo.wet);
+  streetlights.group.visible = atmo.streetlights;
+  lampsActive = atmo.streetlights;
+  if (!lampsActive) for (const pl of lampLights) pl.intensity = 0;
+}
+
+function setWetRoad(on) {
+  roadMat.roughness = on ? 0.42 : 0.94;
+  roadMat.metalness = on ? 0.12 : 0;
+  roadMat.envMapIntensity = on ? 1.5 : 1;
+  if (on) roadMat.color.copy(_roadColor0).multiplyScalar(0.5);
+  else roadMat.color.copy(_roadColor0);
+  roadMat.needsUpdate = true;
+}
+
+// place the lamp-light pool on the nearest street lamps each frame
+function updateLamps() {
+  const hp = streetlights.headPos, cnt = hp.length / 3;
+  const px = vehicle.pos.x, pz = vehicle.pos.z;
+  for (const b of lampBest) { b.d = Infinity; b.i = -1; }
+  for (let k = 0; k < cnt; k++) {
+    const dx = hp[k * 3] - px, dz = hp[k * 3 + 2] - pz, d = dx * dx + dz * dz;
+    if (d > 3600) continue;                       // 60 m radius
+    let mi = 0;
+    for (let j = 1; j < lampBest.length; j++) if (lampBest[j].d > lampBest[mi].d) mi = j;
+    if (d < lampBest[mi].d) { lampBest[mi].d = d; lampBest[mi].i = k; }
+  }
+  for (let j = 0; j < lampLights.length; j++) {
+    const b = lampBest[j], pl = lampLights[j];
+    if (b.i >= 0) { pl.position.set(hp[b.i * 3], hp[b.i * 3 + 1], hp[b.i * 3 + 2]); pl.intensity = 22; }
+    else pl.intensity = 0;
+  }
 }
 
 // ---- car switching (rebuild vehicle + visuals at the same track position)
@@ -151,7 +203,7 @@ function setCar(id) {
   vehicle.reset(s);
   carVis = new CarVisual(scene, renderer, CARS[id]);
   carVis.setCameraMode(camMode);
-  carVis.setHeadlights(atmo.isNight);
+  carVis.setHeadlights(atmo.isNight || atmo.rain);
   audio.setEngine(CARS[id]);
   lastGear = 1;
   window.__vehicle = vehicle;
@@ -211,8 +263,11 @@ function updateHaptics(now) {
   const speed = Math.abs(vehicle.speed);
   try {
     if (vehicle.gear !== lastGear) {
+      // upshift only (accelerating); no haptic on downshift
+      if (vehicle.gear > lastGear && lastGear >= 1) {
+        Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+      }
       lastGear = vehicle.gear;
-      Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
     }
     if (vehicle.landImpact > 0.55) {
       lastHaptic = now;
@@ -356,6 +411,8 @@ function loop(now) {
   carVis.update(vehicle, dtReal);
   updateCamera(dtReal);
   atmo.follow(vehicle.pos);
+  rain.update(dtReal, camera, vehicle.vel);
+  if (lampsActive) updateLamps();
   post.setSpeed(camMode === 2 ? 0 : vehicle.speedKmh);
 
   autoQ.tick(dtReal, fps => hud.flash(`성능 최적화 적용 (${fps} fps)`));
@@ -375,6 +432,7 @@ addEventListener('resize', () => {
   post.resize(innerWidth, innerHeight);
 });
 
+applyNight();          // apply initial preset's environment (grip/wet/rain/lamps)
 requestAnimationFrame(loop);
 
 // commit to driving: start audio, (touch) go fullscreen + lock orientation
@@ -417,8 +475,13 @@ if (sessionStorage.getItem('ns-go')) {
   });
 }
 
+window.__atmo = atmo;
+window.__rain = rain;
+window.__setPreset = i => { atmo.apply(i); applyNight(); };
 window.__vehicle = vehicle;   // debug / test handle
 window.__track = track;
 window.__renderer = renderer;
 window.__audio = audio;
 window.__demHeight = demHeight;
+window.__CARS = CARS;
+window.__Vehicle = vehicle.constructor;
