@@ -32,9 +32,9 @@ export class AutoQuality {
     this._step = 0;
     this.done = tierName === 'low' || localStorage.getItem('ns-tier') != null;
     this.steps = [
-      { label: '해상도 1.5x', run: () => this._setPr(1.5) },
-      { label: '블룸/블러 OFF', run: () => post.setCheap() },
-      { label: '해상도 1.0x', run: () => this._setPr(1.0) },
+      { label: 'Resolution 1.5x', run: () => this._setPr(1.5) },
+      { label: 'Bloom/Blur OFF', run: () => post.setCheap() },
+      { label: 'Resolution 1.0x', run: () => this._setPr(1.0) },
       ...extraSteps,
     ];
   }
@@ -53,6 +53,6 @@ export class AutoQuality {
     if (this._step >= this.steps.length) { this.done = true; return; }
     const s = this.steps[this._step++];
     s.run();
-    notify(`성능 최적화: ${s.label} (${fps | 0} fps)`);
+    notify(`Performance: ${s.label} (${fps | 0} fps)`);
   }
 }

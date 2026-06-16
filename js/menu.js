@@ -40,9 +40,9 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart }) {
   ov.innerHTML = `
     <div id="menu-inner">
       <h1>NÜRBURGRING<span>DRIVE</span></h1>
-      <div class="menu-sec">트랙</div>
+      <div class="menu-sec">TRACK</div>
       <div id="menu-tracks"></div>
-      <div class="menu-sec">차량</div>
+      <div class="menu-sec">CAR</div>
       <div id="menu-cars"></div>
       <button id="menu-start">DRIVE</button>
       <a id="menu-doc" href="./data/game_logic.html" target="_blank" rel="noopener"

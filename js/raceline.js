@@ -122,7 +122,7 @@ export class RaceLine {
   setMode(m) { this.mode = m; this._applyMode(); }
   cycleMode() {
     this.setMode((this.mode + 2) % 3);     // 2(full) -> 1(brake) -> 0(off)
-    return ['끔', '브레이크 가이드', '전체 라인'][this.mode];
+    return ['Off', 'Brake guide', 'Full line'][this.mode];
   }
 
   _baseColorAt(i) {

@@ -73,7 +73,7 @@ const _roadColor0 = roadMat.color.clone();
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.06, 24000);
 const post = new Post(renderer, scene, camera, TIER);
 const autoQ = new AutoQuality(tierName, renderer, post, [
-  { label: '미러 OFF', run: () => { TIER.mirror = 0; } },
+  { label: 'Mirror OFF', run: () => { TIER.mirror = 0; } },
 ]);
 
 const SPAWN_S = tMeta.spawn;   // per-track start position
@@ -99,7 +99,7 @@ input.onKey = code => {
   if (firstStart) audio.setEngine(CARS[carId]);
   if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
   if (code.startsWith('__mode:')) {
-    hud.flash(code.endsWith('tilt') ? '틸트 조향 — 폰을 핸들처럼 기울이세요' : '버튼 조향');
+    hud.flash(code.endsWith('tilt') ? 'Tilt steering — tilt the phone like a wheel' : 'Button steering');
     return;
   }
   switch (code) {
@@ -120,7 +120,7 @@ input.onKey = code => {
       vehicle.auto = !vehicle.auto;
       if (vehicle.gear < 1) vehicle.gear = 1;
       if (TOUCH) input.setManual(!vehicle.auto);
-      hud.flash(vehicle.auto ? 'AUTOMATIC' : 'MANUAL — ↑ 업시프트 / ↓ 다운시프트, W/S 페달');
+      hud.flash(vehicle.auto ? 'AUTOMATIC' : 'MANUAL — ↑ upshift / ↓ downshift, W/S pedals');
       break;
     case 'KeyT':
       vehicle.tc = !vehicle.tc;
@@ -139,11 +139,11 @@ input.onKey = code => {
       break;
     case 'KeyG':
       ghost.enabled = !ghost.enabled;
-      hud.flash('고스트 ' + (ghost.enabled ? 'ON' : 'OFF') +
-        (ghost.hasBest ? '' : ' (베스트 랩을 먼저 기록하세요)'));
+      hud.flash('Ghost ' + (ghost.enabled ? 'ON' : 'OFF') +
+        (ghost.hasBest ? '' : ' (set a best lap first)'));
       break;
     case 'KeyL':
-      hud.flash('레이싱 라인: ' + raceLine.cycleMode());
+      hud.flash('Racing line: ' + raceLine.cycleMode());
       break;
     case 'KeyP': case 'Escape':
       settings.toggle();
@@ -242,7 +242,7 @@ const settings = new SettingsPanel({
     hud.bestLap = null; hud.bestSectors = [null, null, null];
     hud.el.best.textContent = 'BEST  --:--.---';
     ghost.best = null;
-    hud.flash('기록 초기화 완료');
+    hud.flash('Records cleared');
   },
   setPaused: v => { paused = v; updateAudioGate(); },
 });
@@ -289,7 +289,7 @@ function updateHaptics(now) {
 function recoverToTrack() {
   vehicle.reset(vehicle.trackS);
   hud.invalidateLap();
-  hud.flash('트랙 복구');
+  hud.flash('Reset to track');
 }
 const resetBtn = document.getElementById('reset-btn');
 resetBtn.addEventListener('click', () => {
@@ -415,7 +415,7 @@ function loop(now) {
   if (lampsActive) updateLamps();
   post.setSpeed(camMode === 2 ? 0 : vehicle.speedKmh);
 
-  autoQ.tick(dtReal, fps => hud.flash(`성능 최적화 적용 (${fps} fps)`));
+  autoQ.tick(dtReal, fps => hud.flash(`Performance adjusted (${fps} fps)`));
   hud.fps = hud.fps === undefined ? 60 : hud.fps * 0.95 + (1 / Math.max(dtReal, 1e-3)) * 0.05;
 
   frame++;
@@ -447,7 +447,7 @@ function beginDrive() {
     try { document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch (e) {}
     try { screen.orientation.lock('landscape'); } catch (e) {}
     TouchInput.requestMotionPermission();
-    hud.flash(input.mode === 'tilt' ? '틸트 조향 — 폰을 핸들처럼' : '버튼 조향 (설정에서 틸트 전환)');
+    hud.flash(input.mode === 'tilt' ? 'Tilt steering — tilt the phone like a wheel' : 'Button steering (switch to tilt in settings)');
   }
 }
 

@@ -68,7 +68,7 @@ export class TouchInput {
     // minimal in-game bar: pause/settings + reset only (rest lives in settings)
     const bar = document.createElement('div');
     bar.id = 't-actions';
-    for (const [label, code] of [['메뉴', 'KeyP'], ['복구', 'KeyR']]) {
+    for (const [label, code] of [['MENU', 'KeyP'], ['RESET', 'KeyR']]) {
       const b = BTN('t-' + code, label, 'small');
       b.addEventListener('pointerdown', e => {
         e.preventDefault();
@@ -169,7 +169,7 @@ export class TouchInput {
 export function showStartOverlay(onStart) {
   const ov = document.createElement('div');
   ov.id = 'tap-start';
-  ov.innerHTML = '<div><h2>NÜRBURGRING NORDSCHLEIFE</h2><p>탭하여 시작</p></div>';
+  ov.innerHTML = '<div><h2>NÜRBURGRING NORDSCHLEIFE</h2><p>Tap to start</p></div>';
   document.body.appendChild(ov);
   ov.addEventListener('pointerdown', async () => {
     try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch (e) {}

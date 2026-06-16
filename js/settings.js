@@ -41,7 +41,7 @@ export class SettingsPanel {
     const card = document.createElement('div');
     card.id = 'settings-card';
     const h = document.createElement('h2');
-    h.textContent = '설정';
+    h.textContent = 'Settings';
     card.appendChild(h);
 
     this.btns = {};
@@ -55,62 +55,62 @@ export class SettingsPanel {
       return this.btns[name];
     };
 
-    card.appendChild(ROW('차량', group('car',
+    card.appendChild(ROW('Car', group('car',
       Object.values(CARS).filter(c => !c.hidden).map(c => [c.name, () => this.api.setCar(c.id)]))));
 
     if (this.api.isTouch) {
-      card.appendChild(ROW('조향', group('ctrl', [
-        ['버튼', () => this.api.setCtrl('buttons')],
-        ['틸트 (자이로)', () => this.api.setCtrl('tilt')],
+      card.appendChild(ROW('Steering', group('ctrl', [
+        ['Button', () => this.api.setCtrl('buttons')],
+        ['Tilt (gyro)', () => this.api.setCtrl('tilt')],
       ])));
     }
 
-    card.appendChild(ROW('카메라', group('cam', [
-      ['콕핏', () => this.api.setCam(0)],
-      ['후드', () => this.api.setCam(1)],
-      ['체이스', () => this.api.setCam(2)],
+    card.appendChild(ROW('Camera', group('cam', [
+      ['Cockpit', () => this.api.setCam(0)],
+      ['Hood', () => this.api.setCam(1)],
+      ['Chase', () => this.api.setCam(2)],
     ])));
 
-    card.appendChild(ROW('주행 보조', [
+    card.appendChild(ROW('Driver aids', [
       ...group('tc', [['TC/ESC', () => this.api.toggle('tc')]]),
       ...group('abs', [['ABS', () => this.api.toggle('abs')]]),
-      ...group('auto', [['자동변속', () => this.api.toggle('auto')]]),
+      ...group('auto', [['Auto shift', () => this.api.toggle('auto')]]),
     ]));
 
-    card.appendChild(ROW('레이싱 라인', group('line', [
-      ['끔', () => this.api.setLineMode(0)],
-      ['브레이크 가이드만', () => this.api.setLineMode(1)],
-      ['전체 라인', () => this.api.setLineMode(2)],
+    card.appendChild(ROW('Racing line', group('line', [
+      ['Off', () => this.api.setLineMode(0)],
+      ['Brake guide', () => this.api.setLineMode(1)],
+      ['Full line', () => this.api.setLineMode(2)],
     ])));
 
-    card.appendChild(ROW('표시', [
-      ...group('ghost', [['고스트', () => this.api.toggle('ghost')]]),
+    card.appendChild(ROW('Display', [
+      ...group('ghost', [['Ghost', () => this.api.toggle('ghost')]]),
     ]));
 
-    card.appendChild(ROW('날씨 / 시간', group('preset', [
-      ['정오', () => this.api.setPreset(0)],
-      ['아침 안개', () => this.api.setPreset(1)],
-      ['석양', () => this.api.setPreset(2)],
-      ['밤', () => this.api.setPreset(3)],
-      ['비', () => this.api.setPreset(4)],
-      ['밤+가로등', () => this.api.setPreset(5)],
+    card.appendChild(ROW('Weather / Time', group('preset', [
+      ['Noon', () => this.api.setPreset(0)],
+      ['Eifel Morning', () => this.api.setPreset(1)],
+      ['Sunset', () => this.api.setPreset(2)],
+      ['Night', () => this.api.setPreset(3)],
+      ['Rain', () => this.api.setPreset(4)],
+      ['Night · Lit', () => this.api.setPreset(5)],
     ])));
 
-    card.appendChild(ROW('그래픽 (변경 시 재시작)', group('tier', [
-      ['자동', () => this.api.setTier(null)],
-      ['울트라', () => this.api.setTier('ultra')],
-      ['하이', () => this.api.setTier('high')],
-      ['로우', () => this.api.setTier('low')],
+    card.appendChild(ROW('Graphics (restart to apply)', group('tier', [
+      ['Auto', () => this.api.setTier(null)],
+      ['Ultra', () => this.api.setTier('ultra')],
+      ['High', () => this.api.setTier('high')],
+      ['Low', () => this.api.setTier('low')],
     ])));
 
-    const danger = btn('베스트랩/고스트 기록 초기화', () => {
+    const danger = btn('Clear best lap / ghost', () => {
       this.api.resetRecords();
       this.refresh();
     });
     danger.classList.add('danger');
-    card.appendChild(ROW('기록', [danger]));
+    card.appendChild(ROW('Records', [danger]));
 
-    const resume = btn('계속하기', () => this.close());
+    const resume = btn('Resume', () => this.close());
     resume.id = 'set-resume';
     card.appendChild(resume);
 

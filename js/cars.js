@@ -4,7 +4,7 @@
 export const CARS = {
   avante: {
     id: 'avante',
-    name: '아반떼 N',
+    name: 'Elantra N',
     mass: 1430,
     inertia: [2200, 2550, 580],
     comH: 0.45,
@@ -87,7 +87,7 @@ export const CARS = {
   kart: {
     id: 'kart',
     hidden: true,                    // temporarily hidden from menu/UI (data kept)
-    name: '시프터 카트',
+    name: 'Shifter Kart',
     mass: 170,                       // kart + driver (KZ class min)
     inertia: [90, 120, 45],
     comH: 0.24,
@@ -133,7 +133,7 @@ export const CARS = {
   f1: {
     id: 'f1',
     hidden: true,                    // temporarily hidden from menu/UI (data kept)
-    name: 'F1 머신',
+    name: 'F1',
     mass: 798,                       // 2024 regulation minimum
     inertia: [900, 1150, 340],       // low, long, centralized mass = agile
     comH: 0.30,

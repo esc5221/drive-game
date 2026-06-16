@@ -5,39 +5,39 @@ import { Sky } from 'three/addons/objects/Sky.js';
 
 const PRESETS = [
   {
-    name: '정오 (Clear Noon)',
+    name: 'Noon',
     elev: 52, azim: 165, turbidity: 4, rayleigh: 2.2, mieG: 0.75, mieCoeff: 0.004,
     sunColor: 0xfff4e0, sunInt: 2.9, hemiInt: 0.9,
     fogColor: 0xc4d4e2, fogNear: 480, fogFar: 3000, exposure: 0.78, skyGain: 0.26,
   },
   {
-    name: '아침 안개 (Eifel Morning)',
+    name: 'Eifel Morning',
     elev: 19, azim: 105, turbidity: 7, rayleigh: 2.2, mieG: 0.8, mieCoeff: 0.009,
     sunColor: 0xffe8c8, sunInt: 2.3, hemiInt: 0.75,
     fogColor: 0xc9d1d3, fogNear: 170, fogFar: 1250, exposure: 0.72, skyGain: 0.32,
   },
   {
-    name: '석양 (Sunset)',
+    name: 'Sunset',
     elev: 10, azim: 256, turbidity: 6.5, rayleigh: 3.0, mieG: 0.85, mieCoeff: 0.012,
     sunColor: 0xffb070, sunInt: 2.5, hemiInt: 0.62,
     fogColor: 0xd6b48e, fogNear: 280, fogFar: 1700, exposure: 0.62, skyGain: 0.65,
   },
   {
-    name: '밤 (Night)',
+    name: 'Night',
     elev: -14, azim: 0, turbidity: 2, rayleigh: 0.5, mieG: 0.7, mieCoeff: 0.002,
     sunColor: 0x93a8cc, sunInt: 0.16, hemiInt: 0.06,
     fogColor: 0x05080f, fogNear: 70, fogFar: 540, exposure: 0.85, skyGain: 0.05,
     night: true, moonElev: 42, moonAzim: 305,
   },
   {
-    name: '비 (Rain)',
+    name: 'Rain',
     elev: 38, azim: 150, turbidity: 12, rayleigh: 1.3, mieG: 0.82, mieCoeff: 0.020,
     sunColor: 0xb6bcc4, sunInt: 1.0, hemiInt: 0.62,
     fogColor: 0x97a0a8, fogNear: 80, fogFar: 720, exposure: 0.60, skyGain: 0.12,
     rain: true, wet: true, grip: 0.72,
   },
   {
-    name: '밤 + 가로등 (Night Lit)',
+    name: 'Night · Lit',
     elev: -14, azim: 0, turbidity: 2, rayleigh: 0.5, mieG: 0.7, mieCoeff: 0.002,
     sunColor: 0x9fb2d4, sunInt: 0.18, hemiInt: 0.10,
     fogColor: 0x080b14, fogNear: 80, fogFar: 600, exposure: 0.90, skyGain: 0.05,
