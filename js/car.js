@@ -43,7 +43,7 @@ function screenTexture() {
   g.beginPath(); g.moveTo(30, 100); g.bezierCurveTo(90, 30, 150, 110, 226, 40); g.stroke();
   g.fillStyle = '#46e6a0'; g.beginPath(); g.arc(96, 78, 5, 0, 7); g.fill();
   g.fillStyle = '#8a93a0'; g.font = '12px Arial';
-  g.fillText('Nordschleife', 14, 20);
+  g.fillText('Nürburgring', 14, 20);
   return new THREE.CanvasTexture(c);
 }
 

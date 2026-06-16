@@ -169,7 +169,7 @@ export class TouchInput {
 export function showStartOverlay(onStart) {
   const ov = document.createElement('div');
   ov.id = 'tap-start';
-  ov.innerHTML = '<div><h2>NÜRBURGRING NORDSCHLEIFE</h2><p>Tap to start</p></div>';
+  ov.innerHTML = '<div><h2>NÜRBURGRING DRIVE</h2><p>Tap to start</p></div>';
   document.body.appendChild(ov);
   ov.addEventListener('pointerdown', async () => {
     try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch (e) {}

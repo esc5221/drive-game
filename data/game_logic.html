@@ -3,17 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Nordschleife Sim — Technical Overview</title>
-<meta name="description" content="System logic of the Nordschleife Sim — 240Hz physics, Pacejka tires, transmission, vehicles, weather environments, waveguide audio and rendering pipeline.">
+<title>Nürburgring Drive — Technical Overview</title>
+<meta name="description" content="System logic of Nürburgring Drive — 240Hz physics, Pacejka tires, transmission, vehicles, weather environments, waveguide audio and rendering pipeline.">
 <meta name="theme-color" content="#F4F3F0">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <meta property="og:type" content="article">
-<meta property="og:title" content="Nordschleife Sim — Technical Overview">
+<meta property="og:title" content="Nürburgring Drive — Technical Overview">
 <meta property="og:description" content="How the simulator works: physics, transmission, vehicles, environment, audio & rendering.">
-<meta property="og:url" content="https://track.bwchoi.com/data/game_logic.html">
-<meta property="og:image" content="https://track.bwchoi.com/og.png">
+<meta property="og:url" content="https://drive-game.pages.dev/data/game_logic.html">
+<meta property="og:image" content="https://drive-game.pages.dev/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://track.bwchoi.com/og.png">
+<meta name="twitter:image" content="https://drive-game.pages.dev/og.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Doto:wght@500;600;700&family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -132,12 +132,15 @@
     .veh-row .accel { grid-column:1 / -1; }
   }
 </style>
+<!-- Cloudflare Web Analytics -->
+<script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "5f92ae19fb414d8e985699513444fda5"}'></script>
+<!-- End Cloudflare Web Analytics -->
 </head>
 <body>
 
 <nav>
   <div class="nav-in">
-    <span class="brand"><span class="d"></span>Nordschleife Sim</span>
+    <span class="brand"><span class="d"></span>Nürburgring Drive</span>
     <div class="nav-idx">
       <a href="#physics">Physics</a>
       <a href="#shift">Transmission</a>
@@ -155,7 +158,7 @@
     <span>RUNTIME · <b>WEB / ANDROID</b></span>
     <span>ENGINE · <b>THREE.JS r0.165</b></span>
   </div>
-  <h1>Nordschleife<br>Sim</h1>
+  <h1>Nürburgring<br>Drive</h1>
   <p class="lede">A first-person driving simulator running on <b>real OSM track geometry</b>. Three.js rendering layered over a <b>hand-written 240&nbsp;Hz vehicle physics engine</b> — one codebase, shipped to both web and Android via Capacitor.</p>
 
   <div class="keyspec">
@@ -355,7 +358,7 @@
     <span class="step">render</span>
   </div>
   <div class="foot">
-    <span class="big">Nordschleife Sim</span>
+    <span class="big">Nürburgring Drive</span>
   </div>
 </footer>
 

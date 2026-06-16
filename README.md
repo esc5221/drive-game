@@ -1,16 +1,16 @@
-# Nordschleife Sim
+# Nürburgring Drive
 
-![Nordschleife Sim](docs/hero.png)
+![Nürburgring Drive](docs/hero.png)
 
 A first-person driving simulator running on **real OpenStreetMap track geometry** —
 Three.js rendering over a hand-written **240 Hz vehicle physics engine**. One
 codebase, shipped to web and Android (Capacitor).
 
-**▸ Play — [track.bwchoi.com](https://track.bwchoi.com)**  ·  [System Overview](https://track.bwchoi.com/data/game_logic.html)
+**▸ Play — [drive-game.pages.dev](https://drive-game.pages.dev)**  ·  [System Overview](https://drive-game.pages.dev/data/game_logic.html)
 
 ## Features
 
-- **Real tracks** — Nürburgring Nordschleife (20.7 km, OSM geometry + DEM elevation),
+- **Real tracks** — Nürburgring (20.7 km, OSM geometry + DEM elevation),
   Spa-Francorchamps, and a practice circuit.
 - **Custom physics (240 Hz)** — raycast suspension, Pacejka combined-slip tires,
   clutch launch model, aerodynamics, per-surface and weather grip.

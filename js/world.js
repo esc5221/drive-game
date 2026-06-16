@@ -661,7 +661,7 @@ function addSigns(scene, track) {
   const postGeo = new THREE.CylinderGeometry(0.05, 0.05, 2.4, 6);
   const v = new THREE.Vector3();
   for (const seg of track.segments) {
-    if (/Nordschleife/.test(seg.name)) continue;
+    if (/Nürburgring/.test(seg.name)) continue;
     const i = Math.floor(seg.s / track.step) % track.n;
     let cs = 0;
     for (let k = 0; k < 24; k++) cs += track.curv[(i + k) % track.n];
