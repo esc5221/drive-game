@@ -1,356 +1,361 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NORDSCHLEIFE SIM — SYSTEM LOGIC</title>
+<title>Nordschleife Sim — Technical Overview</title>
+<meta name="description" content="System logic of the Nordschleife Sim — 240Hz physics, Pacejka tires, transmission, vehicles, weather environments, waveguide audio and rendering pipeline.">
+<meta name="theme-color" content="#F4F3F0">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Nordschleife Sim — Technical Overview">
+<meta property="og:description" content="How the simulator works: physics, transmission, vehicles, environment, audio & rendering.">
+<meta property="og:url" content="https://track.bwchoi.com/data/game_logic.html">
+<meta property="og:image" content="https://track.bwchoi.com/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://track.bwchoi.com/og.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Doto:wght@400;600;700&family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Doto:wght@500;600;700&family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* light mode — printed technical manual: off-white paper, black ink */
-    --black:#F5F5F5; --surface:#FFFFFF; --surface-raised:#F0F0F0;
-    --border:#E8E8E8; --border-visible:#CCCCCC;
-    --t-disabled:#999999; --t-secondary:#5C5C5C; --t-primary:#1A1A1A; --t-display:#000000;
-    --accent:#D71921; --success:#3E8B4F; --warning:#B08628;
-    --mono:"Space Mono","Noto Sans KR",monospace;
-    --sans:"Space Grotesk","Noto Sans KR",sans-serif;
-    --dot:"Doto","Space Mono",monospace;
+    --paper:#F4F3F0; --surface:#FFFFFF; --raised:#FAFAF8;
+    --line:#E4E2DD; --line-strong:#C9C6BF;
+    --ink:#0A0A0A; --ink-2:#1A1A1A; --muted:#6B6862; --faint:#A8A49C;
+    --accent:#D71921;
+    --mono:"Space Mono",monospace; --sans:"Space Grotesk",system-ui,sans-serif; --dot:"Doto",monospace;
+    --maxw:1120px;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
-  html { scroll-behavior:smooth; }
-  body {
-    background:var(--black); color:var(--t-primary);
-    font-family:var(--sans); font-weight:400;
-    -webkit-font-smoothing:antialiased; line-height:1.55;
-  }
-  .wrap { max-width:1080px; margin:0 auto; padding:0 24px; }
-  .label { font-family:var(--mono); font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:var(--t-secondary); }
-  .mono { font-family:var(--mono); }
+  html { scroll-behavior:smooth; -webkit-text-size-adjust:100%; }
+  body { background:var(--paper); color:var(--ink-2); font-family:var(--sans); font-weight:400; line-height:1.6; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:var(--maxw); margin:0 auto; padding:0 32px; }
+  .label { font-family:var(--mono); font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); }
   .accent { color:var(--accent); }
-  hr { border:0; border-top:1px solid var(--border); margin:0; }
+  a { color:inherit; text-decoration:none; }
+
+  /* ---- top nav ---- */
+  nav { position:sticky; top:0; z-index:10; background:rgba(244,243,240,0.85); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); }
+  .nav-in { max-width:var(--maxw); margin:0 auto; padding:14px 32px; display:flex; align-items:center; justify-content:space-between; }
+  .brand { display:flex; align-items:center; gap:9px; font-family:var(--mono); font-size:12px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink); }
+  .brand .d { width:7px; height:7px; border-radius:50%; background:var(--accent); }
+  .nav-idx { display:flex; gap:22px; }
+  .nav-idx a { font-family:var(--mono); font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); transition:color .2s; }
+  .nav-idx a:hover { color:var(--ink); }
 
   /* ---- hero ---- */
-  header { padding:96px 0 64px; }
-  .eyebrow { display:flex; align-items:center; gap:10px; margin-bottom:32px; }
-  .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); }
-  h1 {
-    font-family:var(--dot); font-weight:600; font-size:64px; line-height:0.98;
-    letter-spacing:-0.02em; color:var(--t-display); text-transform:uppercase;
-  }
-  .sub { margin-top:20px; max-width:540px; color:var(--t-secondary); font-size:16px; }
-  .hero-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:24px; margin-top:64px; }
-  .hstat .num { font-family:var(--mono); font-weight:700; font-size:40px; color:var(--t-display); letter-spacing:-0.02em; }
-  .hstat .num .u { font-family:var(--mono); font-size:13px; color:var(--t-secondary); margin-left:4px; letter-spacing:0; }
-  .hstat .cap { margin-top:8px; }
+  header { padding:88px 0 56px; border-bottom:1px solid var(--line); }
+  .doc-meta { display:flex; gap:28px; margin-bottom:40px; flex-wrap:wrap; }
+  .doc-meta span { font-family:var(--mono); font-size:11px; letter-spacing:0.06em; color:var(--muted); }
+  .doc-meta b { color:var(--ink); font-weight:700; }
+  h1 { font-family:var(--dot); font-weight:600; font-size:clamp(46px,9vw,104px); line-height:0.92; letter-spacing:-0.02em; color:var(--ink); text-transform:uppercase; }
+  .lede { margin-top:28px; max-width:600px; font-size:18px; line-height:1.65; color:var(--ink-2); font-weight:400; }
+  .lede b { font-weight:600; }
 
-  /* ---- section ---- */
-  section { padding:56px 0; }
-  .sec-head { display:flex; align-items:baseline; gap:16px; margin-bottom:40px; }
-  .sec-no { font-family:var(--mono); font-size:13px; color:var(--accent); }
-  .sec-title { font-size:24px; font-weight:400; color:var(--t-display); letter-spacing:-0.01em; }
-  .sec-sub { margin-left:auto; max-width:300px; text-align:right; font-size:13px; color:var(--t-secondary); }
+  .keyspec { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; margin-top:56px; background:var(--line); border:1px solid var(--line); }
+  .keyspec > div { background:var(--paper); padding:22px 20px; }
+  .keyspec .v { font-family:var(--mono); font-weight:700; font-size:34px; letter-spacing:-0.02em; color:var(--ink); }
+  .keyspec .v .u { font-size:13px; color:var(--muted); margin-left:4px; font-weight:400; }
+  .keyspec .k { margin-top:8px; }
+
+  /* ---- report section ---- */
+  section { padding:72px 0; border-bottom:1px solid var(--line); }
+  .sec { display:grid; grid-template-columns:200px 1fr; gap:56px; }
+  .sec-aside { position:sticky; top:90px; align-self:start; }
+  .sec-num { font-family:var(--mono); font-weight:700; font-size:13px; color:var(--accent); letter-spacing:0.06em; }
+  .sec-name { font-family:var(--sans); font-weight:600; font-size:26px; line-height:1.15; letter-spacing:-0.01em; color:var(--ink); margin:12px 0 14px; }
+  .sec-aside p { font-size:13px; line-height:1.6; color:var(--muted); }
+  .sec-body > * + * { margin-top:16px; }
 
   /* ---- cards ---- */
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
-  .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; }
-  .card .cat { margin-bottom:16px; }
-  .card h3 { font-size:18px; font-weight:500; color:var(--t-display); margin-bottom:10px; }
-  .card p { font-size:14px; color:var(--t-secondary); }
-  .card .formula {
-    font-family:var(--mono); font-size:14px; color:var(--t-primary); margin-top:16px;
-    padding:14px 16px; background:var(--black); border:1px solid var(--border); border-radius:8px;
-    overflow-x:auto; white-space:nowrap;
-  }
+  .duo { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:22px; }
+  .card .tag { margin-bottom:14px; }
+  .card h3 { font-size:16px; font-weight:600; color:var(--ink); margin-bottom:8px; }
+  .card p { font-size:13.5px; color:var(--muted); line-height:1.6; }
+  .formula { font-family:var(--mono); font-size:13px; color:var(--ink); margin-top:16px; padding:13px 15px; background:var(--raised); border:1px solid var(--line); border-radius:7px; overflow-x:auto; white-space:nowrap; }
   .formula .accent { color:var(--accent); }
+  sub { font-size:0.75em; }
 
   /* ---- stat rows ---- */
-  .rows { margin-top:8px; }
-  .row { display:flex; justify-content:space-between; align-items:baseline; padding:13px 0; border-top:1px solid var(--border); }
+  .rows { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:6px 20px; }
+  .row { display:flex; justify-content:space-between; align-items:baseline; padding:14px 0; border-top:1px solid var(--line); }
   .row:first-child { border-top:0; }
-  .row .v { font-family:var(--mono); color:var(--t-primary); font-size:15px; }
-  .row .v .u { color:var(--t-secondary); font-size:11px; margin-left:3px; }
+  .row .v { font-family:var(--mono); font-size:14px; color:var(--ink); }
+  .row .v .u { color:var(--muted); font-size:11px; margin-left:3px; }
 
-  /* ---- shift diagram ---- */
+  /* ---- shift band ---- */
   .shift { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  .shift-band { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; }
-  .seg { display:flex; gap:2px; margin:14px 0 6px; height:14px; }
-  .seg span { flex:1; background:var(--border); border-radius:1px; }
-  .seg span.on { background:var(--t-display); }
+  .band { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:22px; }
+  .seg { display:flex; gap:2px; margin:14px 0 7px; height:13px; }
+  .seg span { flex:1; background:var(--line-strong); border-radius:1px; }
+  .seg span.on { background:var(--ink); }
   .seg span.red { background:var(--accent); }
-  .rng { display:flex; justify-content:space-between; }
+  .ends { display:flex; justify-content:space-between; }
 
-  /* ---- car spec ---- */
-  table { width:100%; border-collapse:collapse; }
-  thead th { font-family:var(--mono); font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:var(--t-secondary); text-align:right; padding:0 0 12px; border-bottom:1px solid var(--border-visible); font-weight:400; }
-  thead th:first-child { text-align:left; }
-  tbody td { font-family:var(--mono); font-size:15px; color:var(--t-primary); text-align:right; padding:14px 0; border-bottom:1px solid var(--border); }
-  tbody td:first-child { text-align:left; font-family:var(--sans); color:var(--t-display); font-weight:500; }
-  tbody td .u { color:var(--t-secondary); font-size:11px; }
+  /* ---- vehicle compare ---- */
+  .veh { background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .veh-row { display:grid; grid-template-columns:1.4fr 1fr 1fr 1.3fr; align-items:center; padding:16px 22px; border-top:1px solid var(--line); }
+  .veh-row:first-child { border-top:0; }
+  .veh-row.head span { font-family:var(--mono); font-size:10.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); }
+  .veh-row .name { font-weight:600; font-size:16px; color:var(--ink); }
+  .veh-row .name small { display:block; font-family:var(--mono); font-size:10.5px; letter-spacing:0.08em; color:var(--muted); margin-top:3px; font-weight:400; }
+  .veh-row .m { font-family:var(--mono); font-size:14px; color:var(--ink); }
+  .veh-row .m .u { color:var(--muted); font-size:10.5px; }
+  .veh-row .accel { display:flex; align-items:center; gap:10px; }
+  .accel .bar { flex:1; height:5px; background:var(--line); border-radius:3px; overflow:hidden; }
+  .accel .bar i { display:block; height:100%; background:var(--ink); }
 
-  /* ---- preset chips ---- */
-  .chips { display:flex; flex-wrap:wrap; gap:10px; }
-  .chip { font-family:var(--mono); font-size:12px; text-transform:uppercase; letter-spacing:0.04em; color:var(--t-secondary); border:1px solid var(--border-visible); border-radius:999px; padding:8px 16px; }
+  /* ---- chips ---- */
+  .chips { display:flex; flex-wrap:wrap; gap:9px; }
+  .chip { font-family:var(--mono); font-size:11.5px; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); border:1px solid var(--line-strong); border-radius:999px; padding:7px 15px; }
   .chip.hot { border-color:var(--accent); color:var(--accent); }
 
-  /* ---- flow / pipeline ---- */
-  .flow { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:8px; }
-  .flow .step { font-family:var(--mono); font-size:13px; color:var(--t-primary); border:1px solid var(--border-visible); border-radius:6px; padding:10px 14px; }
-  .flow .arr { color:var(--t-disabled); font-family:var(--mono); }
+  /* ---- pipeline ---- */
+  .flow { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .flow .step { font-family:var(--mono); font-size:12px; color:var(--ink); background:var(--surface); border:1px solid var(--line-strong); border-radius:6px; padding:9px 13px; }
+  .flow .arr { color:var(--faint); font-family:var(--mono); }
 
-  footer { padding:64px 0 96px; }
-  .foot-line { display:flex; justify-content:space-between; align-items:baseline; padding-top:24px; border-top:1px solid var(--border); }
+  /* ---- footer ---- */
+  footer { padding:64px 0 88px; }
+  .foot { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:16px; }
+  .foot .big { font-family:var(--dot); font-weight:600; font-size:30px; letter-spacing:-0.01em; text-transform:uppercase; color:var(--ink); }
 
-  @media (max-width:760px) {
-    h1 { font-size:40px; }
-    .hero-stats { grid-template-columns:repeat(2,1fr); gap:32px 24px; }
-    .grid2,.grid3,.shift { grid-template-columns:1fr; }
-    .sec-sub { display:none; }
-    .hstat .num { font-size:32px; }
+  @media (max-width:820px) {
+    .nav-idx { display:none; }
+    .keyspec { grid-template-columns:1fr 1fr; }
+    .sec { grid-template-columns:1fr; gap:24px; }
+    .sec-aside { position:static; }
+    .duo, .shift { grid-template-columns:1fr; }
+    .veh-row { grid-template-columns:1fr 1fr; gap:8px 16px; }
+    .veh-row.head { display:none; }
+    .veh-row .accel { grid-column:1 / -1; }
   }
 </style>
 </head>
 <body>
 
+<nav>
+  <div class="nav-in">
+    <span class="brand"><span class="d"></span>Nordschleife Sim</span>
+    <div class="nav-idx">
+      <a href="#physics">Physics</a>
+      <a href="#shift">Transmission</a>
+      <a href="#cars">Vehicles</a>
+      <a href="#env">Environment</a>
+      <a href="#stack">Stack</a>
+    </div>
+  </div>
+</nav>
+
 <header class="wrap">
-  <div class="eyebrow">
-    <span class="dot"></span>
-    <span class="label">Driving Simulator · System Logic</span>
+  <div class="doc-meta">
+    <span>DOC · <b>SYSTEM OVERVIEW</b></span>
+    <span>REV · <b>2026.06</b></span>
+    <span>RUNTIME · <b>WEB / ANDROID</b></span>
+    <span>ENGINE · <b>THREE.JS r0.165</b></span>
   </div>
   <h1>Nordschleife<br>Sim</h1>
-  <p class="sub">실측 OSM 트랙 데이터 위에서 도는 1인칭 드라이빙 시뮬레이터. Three.js 렌더링과 직접 작성한 240Hz 차량 물리 엔진. 웹과 Android(Capacitor)에서 동일 코드로 구동.</p>
+  <p class="lede">A first-person driving simulator running on <b>real OSM track geometry</b>. Three.js rendering layered over a <b>hand-written 240&nbsp;Hz vehicle physics engine</b> — one codebase, shipped to both web and Android via Capacitor.</p>
 
-  <div class="hero-stats">
-    <div class="hstat">
-      <div class="num">240<span class="u">Hz</span></div>
-      <div class="cap label">물리 고정 스텝</div>
-    </div>
-    <div class="hstat">
-      <div class="num">20.7<span class="u">km</span></div>
-      <div class="cap label">실측 DEM 트랙</div>
-    </div>
-    <div class="hstat">
-      <div class="num">6<span class="u">env</span></div>
-      <div class="cap label">날씨 / 시간</div>
-    </div>
-    <div class="hstat">
-      <div class="num">6<span class="u">DOF</span></div>
-      <div class="cap label">강체 동역학</div>
-    </div>
+  <div class="keyspec">
+    <div><div class="v">240<span class="u">Hz</span></div><div class="k label">Fixed physics step</div></div>
+    <div><div class="v">20.7<span class="u">km</span></div><div class="k label">Surveyed DEM track</div></div>
+    <div><div class="v">6<span class="u">DOF</span></div><div class="k label">Rigid-body dynamics</div></div>
+    <div><div class="v">6<span class="u">env</span></div><div class="k label">Weather / time presets</div></div>
   </div>
 </header>
 
-<hr class="wrap" style="max-width:1032px;">
-
-<!-- 01 PHYSICS -->
-<section class="wrap">
-  <div class="sec-head">
-    <span class="sec-no">01</span>
-    <span class="sec-title">물리 엔진</span>
-    <span class="sec-sub">매 프레임을 1/240초 서브스텝으로 적분 — 고속에서도 서스펜션·타이어가 발산하지 않는다.</span>
-  </div>
-
-  <div class="grid2">
-    <div class="card">
-      <div class="cat label">Tire · Pacejka combined-slip</div>
-      <h3>마찰원 타이어 모델</h3>
-      <p>종방향 슬립비와 횡방향 슬립각을 하나의 정규화 슬립 ρ로 합쳐, 마찰원 안에서 그립을 배분한다. 가속·제동·코너링이 같은 한계를 나눠 쓴다.</p>
-      <div class="formula">F = μ·load·<span class="accent">sin(1.5·atan(1.73·ρ))</span></div>
-    </div>
-    <div class="card">
-      <div class="cat label">Suspension · raycast</div>
-      <h3>4륜 레이캐스트 서스펜션</h3>
-      <p>각 바퀴가 노면으로 광선을 쏴 침투량을 구하고 스프링·댐퍼 힘을 차체에 전달. 카트처럼 단단한 차도 4륜 접지를 유지하도록 컴플라이언스를 모델링.</p>
-      <div class="formula">F = k·comp − c·v<sub>comp</sub></div>
-    </div>
-    <div class="card">
-      <div class="cat label">Aero · v² 비례</div>
-      <h3>공력</h3>
-      <p>속도 제곱에 비례하는 항력과 다운포스. 다운포스는 타이어 수직하중을 키워 고속 코너 그립을 만든다(다운포스 차량의 정체성).</p>
-      <div class="formula">drag = ½·ρ·C<sub>d</sub>A·v²   ·   DF = ½·ρ·C<sub>l</sub>A·v²</div>
-    </div>
-    <div class="card">
-      <div class="cat label">Launch · clutch slip</div>
-      <h3>클러치 런치 모델</h3>
-      <p>1단 출발 시 클러치가 슬립하며 엔진을 파워밴드에 붙들어 둔다. 클러치가 물리는 순간 회전수가 추락해 보그(bog)하는 현상을 방지.</p>
-      <div class="formula">launching = gear1 &amp; thr&gt;0.2 &amp; roadRpm &lt; launchRpm·0.92</div>
-    </div>
-  </div>
-
-  <div class="rows" style="margin-top:32px;">
-    <div class="row"><span class="label">노면 마찰 μ — 아스팔트 / 커브 / 잔디</span><span class="v">1.22 / 1.10 / 0.55</span></div>
-    <div class="row"><span class="label">날씨 그립 배수 — 건조 / 우천</span><span class="v">1.00 / <span class="accent">0.72</span></span></div>
-    <div class="row"><span class="label">주행 보조 — Traction Control / ABS</span><span class="v">ON · ON</span></div>
-    <div class="row"><span class="label">속도 적분 안전 상한</span><span class="v">130 <span class="u">m/s</span></span></div>
-  </div>
-</section>
-
-<hr class="wrap" style="max-width:1032px;">
-
-<!-- 02 SHIFT -->
-<section class="wrap">
-  <div class="sec-head">
-    <span class="sec-no">02</span>
-    <span class="sec-title">자동 변속</span>
-    <span class="sec-sub">대부분의 레이싱 게임이 쓰는 단순 rpm 기반 — 예측 가능하고 깔끔하다.</span>
-  </div>
-
-  <div class="shift">
-    <div class="shift-band">
-      <div class="label">Upshift · 가속 중에만</div>
-      <div class="seg">
-        <span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="red"></span>
+<!-- PHYSICS -->
+<section id="physics" class="wrap">
+  <div class="sec">
+    <aside class="sec-aside">
+      <div class="sec-num">01</div>
+      <div class="sec-name">Physics<br>Engine</div>
+      <p>Every frame is integrated in 1/240 s sub-steps, so suspension and tires stay stable even at top speed.</p>
+    </aside>
+    <div class="sec-body">
+      <div class="duo">
+        <div class="card">
+          <div class="tag label">Tire · Pacejka combined-slip</div>
+          <h3>Friction-circle tire model</h3>
+          <p>Longitudinal slip ratio and lateral slip angle are folded into one normalized slip ρ, sharing grip inside a friction circle. Accelerating, braking and cornering draw on the same limit.</p>
+          <div class="formula">F = μ · load · <span class="accent">sin(1.5 · atan(1.73 · ρ))</span></div>
+        </div>
+        <div class="card">
+          <div class="tag label">Suspension · raycast</div>
+          <h3>4-wheel raycast suspension</h3>
+          <p>Each wheel casts a ray to the road for penetration depth, then feeds spring + damper force into the body. Even a stiff kart keeps all four wheels planted via modelled compliance.</p>
+          <div class="formula">F = k · comp − c · v<sub>comp</sub></div>
+        </div>
+        <div class="card">
+          <div class="tag label">Aerodynamics · v²</div>
+          <h3>Drag &amp; downforce</h3>
+          <p>Both scale with the square of speed. Downforce loads the tires vertically to create high-speed cornering grip — the defining trait of a wing car.</p>
+          <div class="formula">drag = ½ρ·C<sub>d</sub>A·v²    DF = ½ρ·C<sub>l</sub>A·v²</div>
+        </div>
+        <div class="card">
+          <div class="tag label">Launch · clutch slip</div>
+          <h3>Clutch launch model</h3>
+          <p>In first gear the clutch slips, holding the engine in the power band until the wheels catch up — instead of the revs cratering the instant the clutch grabs.</p>
+          <div class="formula">launching = g1 &amp; thr&gt;0.2 &amp; roadRpm &lt; launchRpm·0.92</div>
+        </div>
       </div>
-      <div class="rng"><span class="label">idle</span><span class="label accent">redline − 350</span></div>
-      <p style="margin-top:16px; font-size:14px; color:var(--t-secondary);">rpm이 레드라인 직전에 닿으면 한 단 올린다. 엑셀을 놓으면 rpm이 자연히 떨어져 업시프트가 일어나지 않는다 — 코스팅 중 멋대로 단이 올라가는 일이 없다.</p>
-    </div>
-    <div class="shift-band">
-      <div class="label">Downshift · 회전 떨어질 때</div>
-      <div class="seg">
-        <span class="on"></span><span class="on"></span><span></span><span></span><span></span><span></span><span></span><span></span>
-      </div>
-      <div class="rng"><span class="label accent">shiftDown</span><span class="label">redline</span></div>
-      <p style="margin-top:16px; font-size:14px; color:var(--t-secondary);">회전이 파워밴드 아래로 떨어지면 한 단 내린다(강한 제동 중 제외). 감속 시 엔진브레이크를 살리는 방향.</p>
-    </div>
-  </div>
-
-  <div class="card" style="margin-top:16px;">
-    <div class="cat label">Bug fixes retained · 단순 정책에 유지된 핵심 수정</div>
-    <div class="flow">
-      <span class="step">roadRpm = 휠속도 기반</span>
-      <span class="arr">→</span>
-      <span class="step">휠스핀에도 런치 오접변속 없음</span>
-      <span class="arr">·</span>
-      <span class="step">변속 중 클러치 OPEN</span>
-      <span class="arr">→</span>
-      <span class="step">기어비 증폭 엔진브레이크 차단</span>
-    </div>
-  </div>
-</section>
-
-<hr class="wrap" style="max-width:1032px;">
-
-<!-- 03 CARS -->
-<section class="wrap">
-  <div class="sec-head">
-    <span class="sec-no">03</span>
-    <span class="sec-title">차량</span>
-    <span class="sec-sub">실제 스펙으로 구동 — 질량·관성·기어비·토크곡선·타이어 그립이 전부 데이터.</span>
-  </div>
-
-  <table>
-    <thead>
-      <tr><th>모델</th><th>구동</th><th>질량</th><th>0–100</th><th>최고속</th></tr>
-    </thead>
-    <tbody>
-      <tr><td>아반떼 N</td><td>FWD</td><td>1430<span class="u">kg</span></td><td>5.8<span class="u">s</span></td><td>265<span class="u">km/h</span></td></tr>
-      <tr><td>911 GT3</td><td>RWD</td><td>1435<span class="u">kg</span></td><td>4.2<span class="u">s</span></td><td>318<span class="u">km/h</span></td></tr>
-    </tbody>
-  </table>
-
-  <div class="grid3" style="margin-top:32px;">
-    <div class="card">
-      <div class="cat label">Drivetrain</div>
-      <h3>스펙 구동 설계</h3>
-      <p>차량별 차이는 cars.js 한 곳에 — 물리·사운드·비주얼이 같은 스펙을 읽는다. 새 차 추가 = 데이터 추가.</p>
-    </div>
-    <div class="card">
-      <div class="cat label">Validation</div>
-      <h3>회귀 테스트</h3>
-      <p>0-100·최고속·코너 거동·변속·후진을 헤드리스로 자동 측정. 물리 수정마다 회귀를 검증.</p>
-    </div>
-    <div class="card">
-      <div class="cat label">Reserved</div>
-      <h3>숨김 자산</h3>
-      <p>시프터 카트·F1 머신과 카트 서킷은 데이터·코드를 보존한 채 메뉴에서만 숨김 — 플래그 하나로 부활.</p>
-    </div>
-  </div>
-</section>
-
-<hr class="wrap" style="max-width:1032px;">
-
-<!-- 04 ENVIRONMENT -->
-<section class="wrap">
-  <div class="sec-head">
-    <span class="sec-no">04</span>
-    <span class="sec-title">환경</span>
-    <span class="sec-sub">프리셋 하나가 하늘·조명·안개·노면·그립·사운드를 한꺼번에 바꾼다.</span>
-  </div>
-
-  <div class="chips" style="margin-bottom:32px;">
-    <span class="chip">정오</span>
-    <span class="chip">아침 안개</span>
-    <span class="chip">석양</span>
-    <span class="chip">밤</span>
-    <span class="chip hot">비</span>
-    <span class="chip hot">밤 + 가로등</span>
-  </div>
-
-  <div class="grid2">
-    <div class="card">
-      <div class="cat label">Rain</div>
-      <h3>비</h3>
-      <p>인스턴스 셰이더 빗줄기(3 depth 레이어) — 정지 시 수직, 고속 시 길게 raking. 젖은 노면 반사, 그립 0.72, 빗소리 레이어, 헤드라이트 자동 점등.</p>
-      <div class="formula">streak length ∝ |rainVel − carVel|<sub>view</sub></div>
-    </div>
-    <div class="card">
-      <div class="cat label">Night Lit</div>
-      <h3>밤 + 가로등</h3>
-      <p>트랙을 따라 62m 간격 가로등. 빛 풀을 도로 평면 basis로 정렬한 타원으로 투사 — 어느 쪽 램프든 도로를 비춘다. 차 근처 가로등에만 실제 PointLight를 동적 배치.</p>
-      <div class="formula">pool = makeBasis(right·w, tangent·l, normal)</div>
-    </div>
-  </div>
-</section>
-
-<hr class="wrap" style="max-width:1032px;">
-
-<!-- 05 AUDIO + RENDER -->
-<section class="wrap">
-  <div class="sec-head">
-    <span class="sec-no">05</span>
-    <span class="sec-title">사운드 · 렌더링</span>
-    <span class="sec-sub">엔진음은 합성 효과가 아니라 물리 도파관 모델 — rpm에 직결.</span>
-  </div>
-
-  <div class="grid2">
-    <div class="card">
-      <div class="cat label">Audio · AudioWorklet</div>
-      <h3>도파관 엔진음</h3>
-      <p>Antonio의 MIT 웨이브가이드 모델 이식 — 양방향 도파관, 밸브 타이밍 반사, 머플러로 실린더 수·배기 길이에 따라 음색이 결정된다. 타이어·바람·빗소리 레이어를 위에 합성.</p>
-      <div class="rows" style="margin-top:8px;">
-        <div class="row"><span class="label">기본 발화 주파수</span><span class="v">rpm / 120 · cyl</span></div>
-        <div class="row"><span class="label">보안 컨텍스트</span><span class="v">https / localhost</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="cat label">Render · Three.js r0.165</div>
-      <h3>렌더 파이프라인</h3>
-      <p>물리 기반 Sky 셰이더 + PMREM 환경 반사, 청크 인스턴싱 포레스트, 그림자. 기기 성능에 따라 품질 티어를 자동 조정(모바일에서 입자·조명 수 축소).</p>
-      <div class="rows" style="margin-top:8px;">
-        <div class="row"><span class="label">계기판</span><span class="v">rpm·속도 바늘 · shift LED</span></div>
-        <div class="row"><span class="label">플랫폼</span><span class="v">Web · Android</span></div>
+      <div class="rows">
+        <div class="row"><span class="label">Surface μ — asphalt / curb / grass</span><span class="v">1.22 / 1.10 / 0.55</span></div>
+        <div class="row"><span class="label">Weather grip — dry / wet</span><span class="v">1.00 / <span class="accent">0.72</span></span></div>
+        <div class="row"><span class="label">Driver aids — traction control / ABS</span><span class="v">ON · ON</span></div>
+        <div class="row"><span class="label">Integration safety clamp</span><span class="v">130 <span class="u">m/s</span></span></div>
       </div>
     </div>
   </div>
 </section>
 
-<hr class="wrap" style="max-width:1032px;">
+<!-- TRANSMISSION -->
+<section id="shift" class="wrap">
+  <div class="sec">
+    <aside class="sec-aside">
+      <div class="sec-num">02</div>
+      <div class="sec-name">Auto<br>Transmission</div>
+      <p>The simple rpm-based scheme most racing games use — predictable, and quiet when you lift off.</p>
+    </aside>
+    <div class="sec-body">
+      <div class="shift">
+        <div class="band">
+          <div class="label">Upshift · only under throttle</div>
+          <div class="seg"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="red"></span></div>
+          <div class="ends"><span class="label">idle</span><span class="label accent">redline − 350</span></div>
+          <p style="margin-top:14px;font-size:13.5px;color:var(--muted);line-height:1.6;">Shifts up just shy of the limiter. Lift off and the revs fall on their own, so no upshift fires while coasting — the gear holds for engine braking.</p>
+        </div>
+        <div class="band">
+          <div class="label">Downshift · as revs drop</div>
+          <div class="seg"><span class="on"></span><span class="on"></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <div class="ends"><span class="label accent">shiftDown</span><span class="label">redline</span></div>
+          <p style="margin-top:14px;font-size:13.5px;color:var(--muted);line-height:1.6;">Drops a gear once revs fall below the band (except under hard braking), keeping engine braking available into a corner.</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="tag label">Retained fixes · under the simple policy</div>
+        <div class="flow">
+          <span class="step">roadRpm = wheel-speed based</span>
+          <span class="arr">→</span>
+          <span class="step">no false upshift on wheelspin</span>
+          <span class="arr">·</span>
+          <span class="step">clutch OPEN during a shift</span>
+          <span class="arr">→</span>
+          <span class="step">no ratio-amplified engine braking</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- VEHICLES -->
+<section id="cars" class="wrap">
+  <div class="sec">
+    <aside class="sec-aside">
+      <div class="sec-num">03</div>
+      <div class="sec-name">Vehicles</div>
+      <p>Driven entirely by real specs — mass, inertia, gear ratios, torque curve and tire grip are all data.</p>
+    </aside>
+    <div class="sec-body">
+      <div class="veh">
+        <div class="veh-row head"><span>Model</span><span>Drive</span><span>Mass</span><span>0–100 / Top</span></div>
+        <div class="veh-row">
+          <span class="name">Elantra N<small>HYUNDAI</small></span>
+          <span class="m">FWD</span>
+          <span class="m">1430<span class="u">kg</span></span>
+          <span class="accel"><span class="m">5.8<span class="u">s</span></span><span class="bar"><i style="width:55%"></i></span><span class="m">265</span></span>
+        </div>
+        <div class="veh-row">
+          <span class="name">911 GT3<small>PORSCHE</small></span>
+          <span class="m">RWD</span>
+          <span class="m">1435<span class="u">kg</span></span>
+          <span class="accel"><span class="m">4.2<span class="u">s</span></span><span class="bar"><i style="width:78%"></i></span><span class="m">318</span></span>
+        </div>
+      </div>
+      <div class="duo">
+        <div class="card"><div class="tag label">Drivetrain</div><h3>Spec-driven design</h3><p>All per-car difference lives in one file; physics, audio and visuals read the same spec. Adding a car means adding data.</p></div>
+        <div class="card"><div class="tag label">Validation</div><h3>Regression suite</h3><p>0–100, top speed, cornering, shifting and reverse are measured headless — every physics change is regression-checked.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ENVIRONMENT -->
+<section id="env" class="wrap">
+  <div class="sec">
+    <aside class="sec-aside">
+      <div class="sec-num">04</div>
+      <div class="sec-name">Environment</div>
+      <p>One preset switches sky, lighting, fog, road surface, grip and sound together.</p>
+    </aside>
+    <div class="sec-body">
+      <div class="chips">
+        <span class="chip">Noon</span><span class="chip">Morning fog</span><span class="chip">Sunset</span>
+        <span class="chip">Night</span><span class="chip hot">Rain</span><span class="chip hot">Night · lit</span>
+      </div>
+      <div class="duo">
+        <div class="card">
+          <div class="tag label">Rain</div>
+          <h3>Instanced shader rain</h3>
+          <p>Three depth layers of streak quads — vertical at a standstill, raked long at speed. Wet reflective road, grip 0.72, layered rain SFX, headlights auto-on.</p>
+          <div class="formula">streak ∝ |rainVel − carVel|<sub>view</sub></div>
+        </div>
+        <div class="card">
+          <div class="tag label">Night · lit</div>
+          <h3>Street lighting</h3>
+          <p>Lamps every 62 m. Each light pool is projected as an ellipse aligned to the road's surface basis, so it lands on the tarmac regardless of which side the lamp is on. Real point lights track only the nearest lamps.</p>
+          <div class="formula">pool = makeBasis(right·w, tangent·l, normal)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STACK -->
+<section id="stack" class="wrap">
+  <div class="sec">
+    <aside class="sec-aside">
+      <div class="sec-num">05</div>
+      <div class="sec-name">Audio &amp;<br>Rendering</div>
+      <p>Engine sound is a physical waveguide model, not a synth effect — it tracks rpm directly.</p>
+    </aside>
+    <div class="sec-body">
+      <div class="duo">
+        <div class="card">
+          <div class="tag label">Audio · AudioWorklet</div>
+          <h3>Waveguide engine</h3>
+          <p>A port of Antonio's MIT waveguide model — bidirectional waveguides, valve-timed reflections and a muffler set the timbre from cylinder count and exhaust length. Tire, wind and rain layers sit on top.</p>
+        </div>
+        <div class="card">
+          <div class="tag label">Render · Three.js</div>
+          <h3>Render pipeline</h3>
+          <p>Physical Sky shader with PMREM environment reflections, chunked instanced forest, shadows. A quality tier auto-scales particle and light counts down on mobile.</p>
+        </div>
+      </div>
+      <div class="rows">
+        <div class="row"><span class="label">Engine firing frequency</span><span class="v">rpm / 120 · cyl</span></div>
+        <div class="row"><span class="label">Instrument cluster</span><span class="v">rpm + speed needles · shift LEDs</span></div>
+        <div class="row"><span class="label">Secure-context audio</span><span class="v">https / localhost</span></div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <footer class="wrap">
-  <div class="label" style="margin-bottom:24px;">Pipeline · 한 프레임의 흐름</div>
-  <div class="flow">
-    <span class="step">입력</span><span class="arr">→</span>
-    <span class="step">자동 변속</span><span class="arr">→</span>
-    <span class="step">240Hz 물리 ×N</span><span class="arr">→</span>
-    <span class="step">차량/카메라</span><span class="arr">→</span>
-    <span class="step">환경/비/조명</span><span class="arr">→</span>
-    <span class="step">사운드</span><span class="arr">→</span>
-    <span class="step">렌더</span>
+  <div class="label" style="margin-bottom:20px;">Frame pipeline</div>
+  <div class="flow" style="margin-bottom:48px;">
+    <span class="step">input</span><span class="arr">→</span>
+    <span class="step">auto-shift</span><span class="arr">→</span>
+    <span class="step">240 Hz physics ×N</span><span class="arr">→</span>
+    <span class="step">vehicle / camera</span><span class="arr">→</span>
+    <span class="step">environment</span><span class="arr">→</span>
+    <span class="step">audio</span><span class="arr">→</span>
+    <span class="step">render</span>
   </div>
-  <div class="foot-line">
-    <span class="label">Nürburgring Nordschleife Simulator</span>
+  <div class="foot">
+    <span class="big">Nordschleife Sim</span>
     <span class="label">Three.js · Custom Physics · Capacitor</span>
   </div>
 </footer>

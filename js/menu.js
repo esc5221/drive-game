@@ -45,6 +45,8 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart }) {
       <div class="menu-sec">차량</div>
       <div id="menu-cars"></div>
       <button id="menu-start">DRIVE</button>
+      <a id="menu-doc" href="./data/game_logic.html" target="_blank" rel="noopener"
+         style="display:block;margin-top:16px;text-align:center;font-family:'Space Mono',monospace;font-size:11px;letter-spacing:0.12em;color:#6a7177;text-decoration:none;text-transform:uppercase;">System Overview &nearr;</a>
     </div>`;
   document.body.appendChild(ov);
 
