@@ -34,9 +34,17 @@ Android (Capacitor): `npm run build && npx cap sync android`, then Gradle `assem
 ## Controls
 
 ```
-↑ / W  throttle      ↓ / S  brake (reverse at standstill)     ← → / A D  steer
-Space  handbrake     M  auto / manual shift     C  camera      N  weather / time
-L  racing line       G  ghost lap               R  reset to track     H  help
+↑ / W       Throttle
+↓ / S       Brake  (reverse at standstill)
+← → / A D   Steer
+Space       Handbrake
+M           Auto / manual shift
+C           Camera  (cockpit / hood / chase)
+N           Weather / time of day
+L           Racing line
+G           Ghost lap
+R           Reset to track
+H           Help
 ```
 
 ## Data & Credits
