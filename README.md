@@ -1,6 +1,8 @@
 # Nürburgring Drive
 
-First-person Nürburgring driving simulator (web + Android) — **▸ Play at [drive-game.pages.dev](https://drive-game.pages.dev)**
+First-person Nürburgring driving simulator (web + Android).
+
+> **[drive-game.pages.dev](https://drive-game.pages.dev)**
 
 ![Nürburgring Drive](docs/hero.png)
 
