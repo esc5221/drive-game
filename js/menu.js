@@ -52,6 +52,9 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart }) {
         <span style="color:#3e4348;margin:0 9px;">·</span>
         <a href="https://github.com/esc5221/drive-game" target="_blank" rel="noopener"
            style="color:#6a7177;text-decoration:none;">Source &nearr;</a>
+        <span style="color:#3e4348;margin:0 9px;">·</span>
+        <a href="./making.html" target="_blank" rel="noopener"
+           style="color:#6a7177;text-decoration:none;">Build log &nearr;</a>
       </div>
     </div>`;
   document.body.appendChild(ov);
