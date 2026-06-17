@@ -245,6 +245,9 @@ const settings = new SettingsPanel({
     hud.flash('Records cleared');
   },
   setPaused: v => { paused = v; updateAudioGate(); },
+  audioLayers: () => audio.layerDefs(),
+  audioState: () => audio.layerStates(),
+  setAudioLayer: (k, on) => audio.setLayer(k, on),
 });
 
 // mute audio when paused (settings open) or when the tab/app is backgrounded
@@ -485,3 +488,4 @@ window.__audio = audio;
 window.__demHeight = demHeight;
 window.__CARS = CARS;
 window.__Vehicle = vehicle.constructor;
+window.__CarAudio = audio.constructor;   // debug / test handle (isolated audio)

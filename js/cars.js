@@ -28,6 +28,7 @@ export const CARS = {
       cyl: 4, turbo: true,
       orders: [1, 0.5, 1.5, 2, 3, 1.02],
       gains:  [0.50, 0.30, 0.08, 0.12, 0.04, 0.22],
+      gearbox: 'dct',
       tone: 900, rasp: 0.30, pops: 0.35, intake: 0.5, sub: 0.18,
     },
     // Antonio waveguide model — turbo 4-cyl: longer exhaust/big muffler = deep
@@ -69,6 +70,7 @@ export const CARS = {
       cyl: 6, turbo: false,
       orders: [1, 0.5, 1.5, 2, 3, 1.03],
       gains:  [0.46, 0.14, 0.30, 0.20, 0.12, 0.24],
+      gearbox: 'pdk',
       tone: 1500, rasp: 0.55, pops: 0.55, intake: 0.7, sub: 0.10,
     },
     // Antonio waveguide model — flat-6 NA: short exhaust + open muffler = high
@@ -110,6 +112,7 @@ export const CARS = {
       cyl: 6, turbo: false,
       orders: [1, 0.5, 1.5, 2, 3, 1.03],
       gains:  [0.40, 0.12, 0.34, 0.24, 0.16, 0.26],
+      gearbox: 'pdk',
       tone: 1800, rasp: 0.60, pops: 0.45, intake: 0.85, sub: 0.07,
     },
     // flat-6 NA, motorsport-derived — screams to 9000 with strong high-rpm
@@ -161,6 +164,7 @@ export const CARS = {
       cyl: 2, turbo: false,          // 2-cyl firing rate ~ a 2-stroke single's buzz
       orders: [1, 0.5, 1.5, 2, 3, 1.02],
       gains:  [0.5, 0.2, 0.3, 0.2, 0.12, 0.24],
+      gearbox: 'direct',
       tone: 2200, rasp: 0.7, pops: 0.2, intake: 0.6, sub: 0.05,
     },
     // tiny screaming 2-stroke: short pipe = high pitch, bright, ringing
@@ -204,6 +208,7 @@ export const CARS = {
       cyl: 6, turbo: true,
       orders: [1, 0.5, 1.5, 2, 3, 1.03],
       gains:  [0.4, 0.12, 0.34, 0.24, 0.18, 0.26],
+      gearbox: 'sequential',
       tone: 2600, rasp: 0.5, pops: 0.5, intake: 0.9, sub: 0.06,
     },
     // high-revving V6 turbo scream — short bright pipe, strong mech zing

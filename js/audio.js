@@ -1,8 +1,10 @@
-// Procedural audio v2 — per-car profiles, layered engine synthesis,
-// two-layer tire model, road roar and rhythmic curb strikes.
-// Engine chain: 6-osc order bank -> waveshaper -> tracking lowpass + tone peak
-//             + exhaust rasp (noise BP @ 2nd order) + intake hiss + sub thump.
+// Procedural audio v3 — per-car layered synthesis. Every sound is a named
+// layer (see audio-config.js) gated through this._g(key, value), so any layer
+// can be toggled / trimmed live (window.__audio.setLayer / .setGain) and the
+// choice persists. Engine is a waveguide worklet; everything else is synthesized
+// here (tires, brakes, road, wind, shift, rev-limiter, jolts, lockup, seams).
 import { SURF } from './track.js';
+import { loadAudioCfg, saveAudioCfg, AUDIO_LAYER_DEFS } from './audio-config.js';
 
 export class CarAudio {
   constructor() {
@@ -11,7 +13,20 @@ export class CarAudio {
     this.engineReady = false;
     this.engineNode = null;
     this._engineSpec = null;
+    this.cfg = loadAudioCfg();
+    // per-frame state for event-driven layers
+    this._prevGear = null; this._prevAir = false;
+    this._lastSeam = null; this._gearbox = 'manual';
   }
+
+  // layer gate: returns 0 when the layer is off, else value * its trim gain.
+  _g(key, v) { const c = this.cfg[key]; return c && c.on ? v * c.gain : 0; }
+
+  // runtime layer control (exposed via window.__audio)
+  setLayer(key, on) { if (this.cfg[key]) { this.cfg[key].on = !!on; saveAudioCfg(this.cfg); } }
+  setGain(key, g)  { if (this.cfg[key]) { this.cfg[key].gain = +g; saveAudioCfg(this.cfg); } }
+  layerStates() { return this.cfg; }
+  layerDefs() { return AUDIO_LAYER_DEFS; }
 
   start() {
     if (this.started) return;
@@ -56,6 +71,7 @@ export class CarAudio {
     this.brakeRub = noiseSrc('bandpass', 1400, 1.6);  // pad-on-disc friction hiss
     this.rain = noiseSrc('highpass', 1100, 0.3);      // rain hiss (weather)
     this.rainLow = noiseSrc('bandpass', 420, 0.6);    // heavier drumming layer
+    this.lockup = noiseSrc('bandpass', 480, 2.4);     // longitudinal lock skid
     this._rainOn = false;
 
     // brake squeal: a high tonal cry (two detuned partials) gated by braking
@@ -76,6 +92,16 @@ export class CarAudio {
     this.curbDepth.connect(this.curb.g.gain);        // gain = base ± depth
     this.curbLfo.start();
 
+    // rev-limiter stutter: a buzzy band chopped by a fast square LFO, gated on
+    // when the engine bounces off the limiter (worklet cuts fuel → this fills it)
+    this.limN = noiseSrc('bandpass', 1300, 1.4);
+    this.limLfo = ctx.createOscillator(); this.limLfo.type = 'square';
+    this.limLfo.frequency.value = 38;                // flutter rate
+    this.limDepth = ctx.createGain(); this.limDepth.gain.value = 0;
+    this.limLfo.connect(this.limDepth);
+    this.limDepth.connect(this.limN.g.gain);
+    this.limLfo.start();
+
     // turbo whistle
     const tw = ctx.createOscillator(); tw.type = 'sine'; tw.frequency.value = 2000;
     const twG = ctx.createGain(); twG.gain.value = 0;
@@ -84,10 +110,7 @@ export class CarAudio {
     this._prevThr = 0;
     this._popCool = 0;
 
-    // ---- engine: procedural firing-pulse worklet, loaded LAST and guarded.
-    // AudioWorklet requires a secure context (https or localhost); on plain
-    // http (e.g. a LAN IP) ctx.audioWorklet is undefined — degrade to a
-    // silent engine while tires/wind/turbo keep working.
+    // ---- engine worklet, loaded LAST and guarded (needs secure context).
     if (ctx.audioWorklet && ctx.audioWorklet.addModule) {
       ctx.audioWorklet.addModule(new URL('./engine-processor.js', import.meta.url))
         .then(() => { this.engineReady = true; if (this._engineSpec) this._buildEngine(this._engineSpec); })
@@ -112,11 +135,9 @@ export class CarAudio {
     this.engineNode.connect(this.engineGain);
     this._engineLevel = m.level ?? 0.5;
     this._engineSpec = spec;
+    this._gearbox = (spec.audio && spec.audio.gearbox) || 'manual';
   }
 
-  // mute + suspend when paused / tab or app backgrounded; resume on return.
-  // Gain ramps to avoid clicks; the context is suspended shortly after so the
-  // worklet stops too (silence + no CPU/battery in the background).
   setActive(on) {
     if (!this.started) return;
     this._active = on;
@@ -132,9 +153,8 @@ export class CarAudio {
     }
   }
 
-  // called by main when the car changes
   setEngine(spec) {
-    if (!this.started) { this._engineSpec = spec; return; }
+    if (!this.started) { this._engineSpec = spec; this._gearbox = (spec.audio && spec.audio.gearbox) || 'manual'; return; }
     this._buildEngine(spec);
   }
 
@@ -142,8 +162,8 @@ export class CarAudio {
     this._rainOn = on;
     if (!this.started) return;
     const t = this.ctx.currentTime;
-    this.rain.g.gain.setTargetAtTime(on ? 0.06 : 0, t, 0.8);
-    this.rainLow.g.gain.setTargetAtTime(on ? 0.022 : 0, t, 0.8);
+    this.rain.g.gain.setTargetAtTime(this._g('rain', on ? 0.06 : 0), t, 0.8);
+    this.rainLow.g.gain.setTargetAtTime(this._g('rain', on ? 0.022 : 0), t, 0.8);
   }
 
   update(vehicle, dt) {
@@ -165,50 +185,88 @@ export class CarAudio {
       this.engineNode.parameters.get('rpm').setTargetAtTime(rpm, t, 0.02);
       this.engineNode.parameters.get('throttle').setTargetAtTime(thr, t, 0.03);
       this.engineNode.parameters.get('redline').value = redline;
-      // worklet already applies per-car level; this is just a presence trim
-      this.engineGain.gain.setTargetAtTime(1.5 * (0.7 + thr * 0.25 + rpmF * 0.1), t, T);
+      this.engineGain.gain.setTargetAtTime(this._g('engine', 1.5 * (0.7 + thr * 0.25 + rpmF * 0.1)), t, T);
     }
     // extra exhaust bite layered on top of the waveguide
     this.rasp.f.frequency.setTargetAtTime(Math.min(4200, rpm / 60 * P.cyl), t, T);
-    this.rasp.g.gain.setTargetAtTime(P.rasp * (0.2 + thr * 0.8) * rpmF * 0.1, t, T);
+    this.rasp.g.gain.setTargetAtTime(this._g('exhaust', P.rasp * (0.2 + thr * 0.8) * rpmF * 0.1), t, T);
+
+    // ---- rev limiter: fires when revs bounce off the cut line under power
+    const atLimit = rpm >= redline - 70 && thr > 0.55;
+    const limAmt = atLimit ? 0.085 : 0;
+    this.limN.g.gain.setTargetAtTime(this._g('limiter', limAmt), t, 0.008);
+    this.limDepth.gain.setTargetAtTime(this._g('limiter', limAmt), t, 0.008);
+    this.limN.f.frequency.setTargetAtTime(900 + P.cyl * rpm / 60 * 0.5, t, 0.05);
+
+    // ---- gear shift: detect a gear change and fire a one-shot per gearbox type
+    const gear = vehicle.gear;
+    if (this._prevGear != null && gear !== this._prevGear && gear >= 1 && this._prevGear >= 1) {
+      this._triggerShift(gear > this._prevGear, rpmF);
+    }
+    this._prevGear = gear;
+
+    // ---- landing slam: physics' landImpact spikes the frame we touch down
+    // (after >0.25s airborne) then decays at ~2.2/s. Fire one thump+thud on the
+    // touchdown edge, scaled by impact. (suspActivity is unusable here — it's
+    // smoothed and includes accel/brake squat, not just road roughness.)
+    const imp = isFinite(vehicle.landImpact) ? vehicle.landImpact : 0;
+    if (this._prevAir && !vehicle.airborne && imp > 0.06) {
+      this._thump(62, this._g('landing', 0.6 * imp), 0.22);
+      this._burst('lowpass', 300, 0.8, this._g('landing', 0.32 * imp), 0.13);
+    }
+    this._prevAir = vehicle.airborne;
 
     // ---- wind / speed
     const v = Math.abs(spd);
-    this.wind.g.gain.setTargetAtTime(Math.min(0.5, Math.pow(v / 65, 2.6) * 0.5), t, 0.12);
+    this.wind.g.gain.setTargetAtTime(this._g('wind', Math.min(0.5, Math.pow(v / 65, 2.6) * 0.5)), t, 0.12);
     this.wind.f.frequency.setTargetAtTime(400 + v * 14, t, 0.12);
 
-    // ---- tires: split lateral squeal vs combined scrub
+    // ---- tires: split lateral squeal vs combined scrub vs longitudinal lockup
     const onRoad = vehicle.onTrack;
-    let latSlip = 0, longSlip = 0, onCurb = false;
+    let latSlip = 0, longSlip = 0, onCurb = false, lock = 0;
     for (const w of vehicle.wheels) {
       if (!w.contact) continue;
       latSlip = Math.max(latSlip, Math.abs(Math.sin(w.slipAngle)));
       longSlip = Math.max(longSlip, Math.abs(w.slipRatio));
+      if (w.slipRatio < -0.18) lock = Math.max(lock, -w.slipRatio);   // wheel locking up
       if (w.surf === SURF.CURB) onCurb = true;
     }
     const vF = Math.min(1, v / 7);
     const sq = onRoad ? Math.max(0, latSlip - 0.12) * 2.2 : 0;
-    this.squeal.g.gain.setTargetAtTime(Math.min(0.30, sq * 0.30) * vF, t, 0.05);
+    this.squeal.g.gain.setTargetAtTime(this._g('tireSqueal', Math.min(0.30, sq * 0.30) * vF), t, 0.05);
     this.squeal.f.frequency.setTargetAtTime(750 + latSlip * 900 + v * 2, t, 0.08);
     const sc = onRoad ? Math.max(0, longSlip - 0.12) * 1.6 : 0;
-    this.scrub.g.gain.setTargetAtTime(Math.min(0.25, sc * 0.25) * vF, t, 0.05);
+    this.scrub.g.gain.setTargetAtTime(this._g('tireScrub', Math.min(0.25, sc * 0.25) * vF), t, 0.05);
+    // lockup: hard braking, ABS not catching, wheel sliding (distinct lower cry)
+    const braking = vehicle.ctrl.brake > 0.4 && v > 2;
+    const lockAmt = (braking && !vehicle._absActive) ? Math.min(1, (lock - 0.18) * 2.2) : 0;
+    this.lockup.g.gain.setTargetAtTime(this._g('lockup', Math.min(0.22, lockAmt * 0.22) * Math.min(1, v / 5)), t, 0.04);
+    this.lockup.f.frequency.setTargetAtTime(430 + v * 4, t, 0.1);
 
     // asphalt roar (subtle, grows with speed)
-    this.roar.g.gain.setTargetAtTime(onRoad ? Math.min(0.10, v * 0.0011) : 0, t, 0.15);
+    this.roar.g.gain.setTargetAtTime(this._g('roar', onRoad ? Math.min(0.10, v * 0.0011) : 0), t, 0.15);
     this.roar.f.frequency.setTargetAtTime(180 + v * 2.2, t, 0.15);
 
-    // ---- brakes: pad friction hiss + disc squeal (loudest at low-mid speed,
-    // the way real brakes squeal as you slow to a stop)
+    // road seams: periodic expansion-joint thuds, distance-paced, on tarmac only
+    if (onRoad && v > 12 && vehicle.surf !== SURF.GRASS) {
+      const s = vehicle.trackS || 0;
+      if (this._lastSeam == null) this._lastSeam = s;
+      if (Math.abs(s - this._lastSeam) >= 19) {
+        this._lastSeam = s;
+        this._burst('lowpass', 230, 0.9, this._g('seams', Math.min(0.10, 0.03 + v * 0.0006)), 0.05);
+      }
+    }
+
+    // ---- brakes: pad friction hiss + disc squeal
     const brake = vehicle.ctrl.brake;
-    const braking = brake > 0.12 && v > 0.6;
-    this.brakeRub.g.gain.setTargetAtTime(braking ? Math.min(0.10, brake * 0.10) : 0, t, 0.04);
+    const brakingHiss = brake > 0.12 && v > 0.6;
+    this.brakeRub.g.gain.setTargetAtTime(this._g('brakeRub', brakingHiss ? Math.min(0.10, brake * 0.10) : 0), t, 0.04);
     this.brakeRub.f.frequency.setTargetAtTime(900 + v * 6, t, 0.08);
-    // squeal: needs firm pressure, peaks ~10-40 km/h, fades at high speed & crawl
     const sp = v;
     const speedWin = Math.max(0, Math.min(1, (sp - 1.5) / 4)) * Math.max(0, 1 - sp / 22);
     let squealAmt = brake > 0.35 ? (brake - 0.35) * 1.5 * speedWin : 0;
     if (vehicle._absActive) squealAmt *= 0.4 + 0.6 * ((performance.now() * 0.02 | 0) % 2);  // ABS chops it
-    this.bsGain.gain.setTargetAtTime(Math.min(0.16, squealAmt * 0.16), t, 0.03);
+    this.bsGain.gain.setTargetAtTime(this._g('brakeSqueal', Math.min(0.16, squealAmt * 0.16)), t, 0.03);
     const bf = 2600 + sp * 70;
     this.bsBP.frequency.setTargetAtTime(bf, t, 0.06);
     this.bsOsc1.frequency.setTargetAtTime(bf * 0.97, t, 0.06);
@@ -217,7 +275,7 @@ export class CarAudio {
     // rhythmic curb: strike rate = speed / 2m stripe pitch
     if (onCurb && v > 3) {
       this.curbLfo.frequency.setTargetAtTime(Math.max(4, v / 2), t, 0.05);
-      const amp = Math.min(0.22, 0.08 + v * 0.0015);
+      const amp = this._g('curb', Math.min(0.22, 0.08 + v * 0.0015));
       this.curb.g.gain.setTargetAtTime(amp, t, 0.03);
       this.curbDepth.gain.setTargetAtTime(amp, t, 0.03);
     } else {
@@ -225,16 +283,15 @@ export class CarAudio {
       this.curbDepth.gain.setTargetAtTime(0, t, 0.05);
     }
 
-    this.grass.g.gain.setTargetAtTime(!onRoad && v > 2 ? Math.min(0.4, v / 40 + 0.12) : 0, t, 0.08);
-    this.scrapeN.g.gain.setTargetAtTime(vehicle.scrape > 0.05 ? Math.min(0.5, vehicle.scrape * 0.5) : 0, t, 0.03);
+    this.grass.g.gain.setTargetAtTime(this._g('grass', !onRoad && v > 2 ? Math.min(0.4, v / 40 + 0.12) : 0), t, 0.08);
+    this.scrapeN.g.gain.setTargetAtTime(this._g('scrape', vehicle.scrape > 0.05 ? Math.min(0.5, vehicle.scrape * 0.5) : 0), t, 0.03);
 
-    // ---- turbo character (profile-gated). Overrun pops now come from the
-    // engine worklet (decelPops), so only the turbo blow-off lives here.
+    // ---- turbo character (profile-gated)
     if (P.turbo) {
       this.turbo.o.frequency.setTargetAtTime(1400 + rpm * 0.45, t, 0.08);
-      this.turbo.g.gain.setTargetAtTime(thr * rpmF * rpmF * 0.045, t, 0.1);
+      this.turbo.g.gain.setTargetAtTime(this._g('turbo', thr * rpmF * rpmF * 0.045), t, 0.1);
       if (this._prevThr > 0.5 && thr < 0.1 && rpm > 3200) {
-        this._burst('bandpass', 2600, 1.6, 0.22, 0.4);   // blow-off "psssh"
+        this._burst('bandpass', 2600, 1.6, this._g('turbo', 0.22), 0.4);   // blow-off "psssh"
       }
     } else {
       this.turbo.g.gain.setTargetAtTime(0, t, 0.1);
@@ -242,8 +299,32 @@ export class CarAudio {
     this._prevThr = thr;
   }
 
-  // one-shot enveloped noise burst (turbo blow-off)
+  // gearbox-flavored shift one-shot. up = upshift (ign-cut pop), else rev-match.
+  _triggerShift(up, rpmF) {
+    const gb = this._gearbox;
+    // mechanical engagement click — crisp & quiet for PDK/DCT, hard & metallic
+    // for a sequential dog box, a soft chain clack for a kart.
+    const P = { pdk:  { click: 0.16, cf: 3600, cq: 1.2, cd: 0.035, pop: 0.13, braap: 0.20 },
+                dct:  { click: 0.14, cf: 3200, cq: 1.0, cd: 0.040, pop: 0.10, braap: 0.17 },
+                sequential: { click: 0.30, cf: 2700, cq: 0.9, cd: 0.050, pop: 0.16, braap: 0.24 },
+                direct: { click: 0.05, cf: 4200, cq: 1.4, cd: 0.025, pop: 0.0, braap: 0.0 },
+                manual: { click: 0.10, cf: 3000, cq: 1.0, cd: 0.045, pop: 0.06, braap: 0.12 } }[gb]
+              || { click: 0.10, cf: 3000, cq: 1.0, cd: 0.045, pop: 0.06, braap: 0.12 };
+    const w = 0.5 + 0.5 * rpmF;                       // louder near the top end
+    this._burst('bandpass', P.cf, P.cq, this._g('shift', P.click * w), P.cd);
+    if (up && P.pop > 0) {
+      // ignition-cut exhaust pop on the upshift
+      this._burst('bandpass', 600, 1.4, this._g('shift', P.pop * w), 0.07);
+    } else if (!up && P.braap > 0) {
+      // downshift rev-match "braap": short boosted exhaust burst + a pop
+      this._burst('bandpass', 720, 1.2, this._g('shift', P.braap * w), 0.13);
+      this._burst('lowpass', 380, 0.8, this._g('shift', P.braap * 0.6 * w), 0.10);
+    }
+  }
+
+  // one-shot enveloped noise burst
   _burst(filterType, freq, q, gain, dur) {
+    if (gain <= 0.0005) return;
     const ctx = this.ctx;
     const src = ctx.createBufferSource(); src.buffer = this._noiseBuf; src.loop = true;
     const f = ctx.createBiquadFilter(); f.type = filterType; f.frequency.value = freq; f.Q.value = q;
@@ -253,5 +334,19 @@ export class CarAudio {
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     src.connect(f); f.connect(g); g.connect(this.master);
     src.start(); src.stop(t + dur + 0.05);
+  }
+
+  // one-shot decaying tone (chassis thump on landing/bump)
+  _thump(freq, gain, dur) {
+    if (gain <= 0.0005) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(freq, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20, freq * 0.5), t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(this.master);
+    o.start(); o.stop(t + dur + 0.05);
   }
 }

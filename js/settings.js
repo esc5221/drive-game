@@ -103,6 +103,27 @@ export class SettingsPanel {
       ['Low', () => this.api.setTier('low')],
     ])));
 
+    // Sound layers — one toggle per layer, grouped. Lets you mute any single
+    // sound live (engine, shift, tires, brakes…) if it isn't to your taste.
+    if (this.api.audioLayers) {
+      const defs = this.api.audioLayers();
+      const groups = {};
+      for (const d of defs) (groups[d.group] = groups[d.group] || []).push(d);
+      this._audioBtns = {};
+      for (const gname in groups) {
+        const row = groups[gname].map(d => {
+          const b = btn(d.label, () => {
+            const st = this.api.audioState()[d.key];
+            this.api.setAudioLayer(d.key, !(st && st.on));
+            this.refresh();
+          });
+          this._audioBtns[d.key] = b;
+          return b;
+        });
+        card.appendChild(ROW('Sound · ' + gname, row));
+      }
+    }
+
     const danger = btn('Clear best lap / ghost', () => {
       this.api.resetRecords();
       this.refresh();
@@ -137,6 +158,10 @@ export class SettingsPanel {
     this._mark('preset', s.preset);
     const tierIdx = { ultra: 1, high: 2, low: 3 }[localStorage.getItem('ns-tier')] || 0;
     this._mark('tier', tierIdx);
+    if (this._audioBtns) {
+      const ast = this.api.audioState();
+      for (const k in this._audioBtns) this._audioBtns[k].classList.toggle('active', !!(ast[k] && ast[k].on));
+    }
   }
 
   show() {
