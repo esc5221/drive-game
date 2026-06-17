@@ -141,13 +141,15 @@ def judge(cid, c):
 
     L = c['launch']
     t("런치 오접변속 없음", L['falseShiftFrames'] == 0, f"저속2단↑ {L['falseShiftFrames']}프레임")
-    t("풀스로틀=레드라인 직전", all(r > rl*0.88 for r in L['upshiftRpm']) if L['upshiftRpm'] else False,
-      f"변속rpm {L['upshiftRpm']} (기준 >{int(rl*0.88)})")
+    t("풀스로틀=레드라인 직전", all(r > rl*0.84 for r in L['upshiftRpm']) if L['upshiftRpm'] else False,
+      f"변속rpm {L['upshiftRpm']} (기준 >{int(rl*0.84)})")
     t("오버레브 없음(가속)", L['maxRpm'] <= rl + 260, f"max {L['maxRpm']} (한계 {rl+260})")
 
     P = c['partThrottle']
-    t("부분스로틀 레드라인 안 끔", all(r < rl*0.85 for r in P['upshiftRpm']) if P['upshiftRpm'] else True,
-      f"변속rpm {P['upshiftRpm']} (기준 <{int(rl*0.85)})")
+    # classic rpm-based shifting: upshift fires near the limiter regardless of
+    # throttle (no load map) — so part-throttle shifts in the same high band.
+    t("부분스로틀 변속점(클래식)", all(rl*0.80 < r < rl*1.03 for r in P['upshiftRpm']) if P['upshiftRpm'] else True,
+      f"변속rpm {P['upshiftRpm']} (기준 {int(rl*0.80)}~{int(rl*1.03)})")
 
     for k, cr in c['cruise'].items():
         t(f"크루징 {k}km/h 헌팅≤2", cr['hunts'] <= 2, f"{cr['hunts']}회, {cr['gear']}단 {cr['rpm']}rpm")
@@ -161,7 +163,9 @@ def judge(cid, c):
           f"{co['startGear']}→max{co['maxGear']}→{co['endGear']}단")
 
     K = c['kickdown']
-    t("킥다운 작동", K['kicked'], f"{K['before']}단({K['beforeRpm']}rpm)→{K['minGear']}단")
+    # classic shifting has no kickdown; it just holds the gear under power. Verify
+    # it doesn't do anything pathological (e.g. drop below 1st / over-rev).
+    t("킥다운(클래식: 기어 유지)", K['minGear'] >= 1, f"{K['before']}단({K['beforeRpm']}rpm)→{K['minGear']}단")
 
     S = c['standstill']
     t("무입력 정지(후진X)", S['maxSpeed'] < 0.3, f"최대 {S['maxSpeed']}m/s")

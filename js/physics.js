@@ -199,13 +199,15 @@ export class Vehicle {
       // rpm comes from road speed (wheelspin-immune) so a launch can't false-shift,
       // and lifting off lets revs fall naturally → no upshift while coasting.
       if (roadRpm > ENG.redline - 350 && this.gear < sp.gears.length) {
-        this.gear++; this.shiftTimer = 0.15; this.shiftCooldown = 0.5;
+        this.gear++; this.shiftTimer = 0.08; this.shiftCooldown = 0.4;   // fast DCT/PDK shift
       } else if (roadRpm < ENG.shiftDown && this.gear > 1 && this.ctrl.brake < 0.7) {
-        this.gear--; this.shiftTimer = 0.13; this.shiftCooldown = 0.4;
+        this.gear--; this.shiftTimer = 0.10; this.shiftCooldown = 0.35;
       }
     }
 
-    let thr = this.ctrl.throttle * (1 - this.tcCut);
+    // during a launch the torque cap below limits traction, so don't also let the
+    // TC chop the throttle (double-limiting wastes the launch). Otherwise normal TC.
+    let thr = this.ctrl.throttle * (launching ? 1 : (1 - this.tcCut));
     if (this.shiftTimer > 0) thr = 0;
     if (this.rpm >= ENG.redline) thr = 0;                          // limiter
     let tEngine = engineTorque(ENG, this.rpm) * thr;
@@ -222,6 +224,16 @@ export class Vehicle {
                   (clutchEngaged ? 1 : 0) * ratio * DRIVE_EFF;
     tAxle -= Math.sign(wAvg) * Math.min(1, Math.abs(wAvg) / 3) * ebMag;
     if (this.gear === 0) tAxle = 0;
+    // launch control: cap drive torque to the driven-axle traction limit so the
+    // tires sit near peak slip (max longitudinal g) instead of spinning up and
+    // forcing the TC to chop power. This is what gets a high-power RWD car off
+    // the line — without it the launch wastes ~0.7s vs the traction-limited ideal.
+    if (launching) {
+      const muDrv = MU[SURF.ROAD] * (this.drivenFront ? sp.wheels.muF : sp.wheels.muR) * WEATHER_GRIP;
+      const drvFrac = this.drivenFront ? 0.62 : 0.60;       // static weight on the driven axle
+      const tracCap = muDrv * this.mass * G * drvFrac * this.wheels[di].radius * 1.18;
+      if (tAxle > tracCap) tAxle = tracCap;
+    }
 
     // LSD on the driven axle
     const dOmega = this.wheels[di].omega - this.wheels[di + 1].omega;
