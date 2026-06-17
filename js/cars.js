@@ -38,7 +38,10 @@ export const CARS = {
       straightPipeLen: 150, mufflerElements: [9, 14, 19, 26], mufflerAction: 0.16,
       ignitionTime: 0.018, intakeOpen: 0.25, intakeClosed: 0.9,
       exhaustOpen: 0.25, exhaustClosed: 0.95,
-      outletGain: 1.1, intakeMix: 0.6, blockMix: 1.05, decelPops: 1.0, level: 0.6,
+      outletGain: 1.1, intakeMix: 0.6, blockMix: 0.75, decelPops: 1.0, level: 0.72,
+      // turbo I4: de-boom the sub, lift the firing body, NO treble shelf — the
+      // turbo muffles upper harmonics (matched to an Elantra N track recording).
+      hpHz: 105, hpQ: 0.7, peakF: 280, peakQ: 0.6, peakDb: 3.5,
     },
     visual: { color: 0x1f4f9e, accent: 0xc8102e, wing: 'lip', roofY: 0.64, rearY: 0.36 },
     dialMax: 8, dialRed: 7, dialSpeed: 300,
@@ -73,14 +76,16 @@ export const CARS = {
       gearbox: 'pdk',
       tone: 1500, rasp: 0.55, pops: 0.55, intake: 0.7, sub: 0.10,
     },
-    // Antonio waveguide model — flat-6 NA: short exhaust + open muffler = high
-    // revvy howl, strong intake, little overrun pop.
+    // Antonio waveguide — same 4.0 NA flat-6 as the RS, slightly tamer exhaust.
+    // Same de-boom + howl tone EQ (a touch less aggressive than the RS).
     engine_model: {
-      cyl: 6, intakeLen: 85, exhaustLen: 70, extractorLen: 80,
-      straightPipeLen: 95, mufflerElements: [7, 11, 15, 19], mufflerAction: 0.12,
-      ignitionTime: 0.012, intakeOpen: 0.22, intakeClosed: 0.9,
+      cyl: 6, intakeLen: 85, exhaustLen: 48, extractorLen: 52,
+      straightPipeLen: 58, mufflerElements: [5, 8, 11, 14], mufflerAction: 0.12,
+      ignitionTime: 0.008, intakeOpen: 0.22, intakeClosed: 0.9,
       exhaustOpen: 0.22, exhaustClosed: 0.95,
-      outletGain: 1.0, intakeMix: 0.9, blockMix: 0.95, decelPops: 0.3, level: 0.55,
+      outletGain: 1.15, intakeMix: 0.9, blockMix: 0.60, decelPops: 0.3, level: 0.70,
+      hpHz: 195, hpQ: 0.7, cutF: 150, cutQ: 1.1, cutDb: -6.0,
+      peakF: 950, peakQ: 0.7, peakDb: 4.0, shelfF: 4200, shelfDb: 1.5,
     },
     visual: { color: 0xf2c200, accent: 0x111111, wing: 'gt', roofY: 0.58, rearY: 0.40 },
     dialMax: 10, dialRed: 9, dialSpeed: 340,
@@ -171,10 +176,15 @@ export const CARS = {
     engine_model: {
       cyl: 2, intakeLen: 42, exhaustLen: 38, extractorLen: 40,
       straightPipeLen: 50, mufflerElements: [4, 6, 8, 10], mufflerAction: 0.10,
-      ignitionTime: 0.010, intakeOpen: 0.2, intakeClosed: 0.9,
+      ignitionTime: 0.006, intakeOpen: 0.2, intakeClosed: 0.9,
       exhaustOpen: 0.2, exhaustClosed: 0.95,
       cylRefl: 0.68, pistonAmp: 0.8,
-      outletGain: 1.05, intakeMix: 1.0, blockMix: 0.8, decelPops: 0.4, level: 0.5,
+      outletGain: 1.05, intakeMix: 1.0, blockMix: 0.8, decelPops: 0.4, level: 0.55,
+      // 2-cyl screamer: scoop the boomy firing region, push a bright 2-4kHz buzz
+      // peak — the distinctive kart shriek (matched to a Rotax onboard). Sharp
+      // ignition (0.006) generates the upper harmonics the buzz peak lifts.
+      cutF: 210, cutQ: 0.8, cutDb: -7.0, peakF: 2700, peakQ: 0.8, peakDb: 9.0,
+      shelfF: 3600, shelfDb: 4.0,
     },
     visual: { type: 'kart', color: 0xe23b2e, accent: 0x111111 },
     dialMax: 16, dialRed: 14, dialSpeed: 160,
@@ -218,7 +228,11 @@ export const CARS = {
       ignitionTime: 0.009, intakeOpen: 0.22, intakeClosed: 0.9,
       exhaustOpen: 0.22, exhaustClosed: 0.95,
       cylRefl: 0.6, pistonAmp: 0.85,
-      outletGain: 1.0, intakeMix: 1.1, blockMix: 0.9, decelPops: 0.45, level: 0.52,
+      outletGain: 1.0, intakeMix: 1.1, blockMix: 0.5, decelPops: 0.45, level: 0.62,
+      // V6 turbo: hard de-boom, strong 700Hz howl (firing ~600Hz at 12k), bright
+      // top — energy centers 500-1kHz like the real PU (matched to onboard).
+      hpHz: 210, hpQ: 0.7, cutF: 150, cutQ: 1.1, cutDb: -4.0,
+      peakF: 760, peakQ: 0.5, peakDb: 6.0, shelfF: 2100, shelfDb: 5.0,
     },
     visual: { type: 'formula', color: 0x1568c8, accent: 0xece81a, wing: 'gt' },
     dialMax: 14, dialRed: 13, dialSpeed: 360,
