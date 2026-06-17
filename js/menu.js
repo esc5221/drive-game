@@ -45,8 +45,14 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart }) {
       <div class="menu-sec">CAR</div>
       <div id="menu-cars"></div>
       <button id="menu-start">DRIVE</button>
-      <a id="menu-doc" href="./data/game_logic.html" target="_blank" rel="noopener"
-         style="display:block;margin-top:16px;text-align:center;font-family:'Space Mono',monospace;font-size:11px;letter-spacing:0.12em;color:#6a7177;text-decoration:none;text-transform:uppercase;">System Overview &nearr;</a>
+      <div id="menu-links"
+         style="margin-top:16px;text-align:center;font-family:'Space Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;">
+        <a href="./data/game_logic.html" target="_blank" rel="noopener"
+           style="color:#6a7177;text-decoration:none;">System Overview &nearr;</a>
+        <span style="color:#3e4348;margin:0 9px;">·</span>
+        <a href="https://github.com/esc5221/drive-game" target="_blank" rel="noopener"
+           style="color:#6a7177;text-decoration:none;">Source &nearr;</a>
+      </div>
     </div>`;
   document.body.appendChild(ov);
 
