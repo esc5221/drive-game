@@ -22,6 +22,42 @@ class LowpassFilter {
   get(v) { this.last += this.alpha * (v - this.last); return this.last; }
 }
 
+// RBJ biquad (DF1) for the optional per-car tone EQ on the engine output.
+// Off by default — a car with no eq config never instantiates one, so the
+// shared processor stays byte-identical for every other vehicle.
+class Biquad {
+  constructor(type, f0, Q, dBgain) {
+    const A = Math.pow(10, (dBgain || 0) / 40);
+    const w0 = 2 * Math.PI * f0 / SR, cw = Math.cos(w0), sw = Math.sin(w0);
+    const alpha = sw / (2 * Q);
+    let b0, b1, b2, a0, a1, a2;
+    if (type === 'highpass') {
+      b0 = (1 + cw) / 2; b1 = -(1 + cw); b2 = (1 + cw) / 2;
+      a0 = 1 + alpha; a1 = -2 * cw; a2 = 1 - alpha;
+    } else if (type === 'peaking') {
+      b0 = 1 + alpha * A; b1 = -2 * cw; b2 = 1 - alpha * A;
+      a0 = 1 + alpha / A; a1 = -2 * cw; a2 = 1 - alpha / A;
+    } else { // highshelf
+      const ap = 2 * Math.sqrt(A) * alpha;
+      b0 = A * ((A + 1) + (A - 1) * cw + ap);
+      b1 = -2 * A * ((A - 1) + (A + 1) * cw);
+      b2 = A * ((A + 1) + (A - 1) * cw - ap);
+      a0 = (A + 1) - (A - 1) * cw + ap;
+      a1 = 2 * ((A - 1) - (A + 1) * cw);
+      a2 = (A + 1) - (A - 1) * cw - ap;
+    }
+    this.b0 = b0 / a0; this.b1 = b1 / a0; this.b2 = b2 / a0;
+    this.a1 = a1 / a0; this.a2 = a2 / a0;
+    this.x1 = this.x2 = this.y1 = this.y2 = 0;
+  }
+  get(x) {
+    const y = this.b0 * x + this.b1 * this.x1 + this.b2 * this.x2
+            - this.a1 * this.y1 - this.a2 * this.y2;
+    this.x2 = this.x1; this.x1 = x; this.y2 = this.y1; this.y1 = y;
+    return y;
+  }
+}
+
 class DelayLine {
   constructor(length) {
     this.data = new Float32Array(length);
@@ -158,6 +194,14 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.level = o.level ?? 0.5;
     this.decelPops = o.decelPops ?? 0.5;
 
+    // optional per-car tone EQ: de-boom (highpass) + howl band (peaking) +
+    // air (highshelf). Built only when configured, so other cars are untouched.
+    this.eq = [];
+    if (o.hpHz) this.eq.push(new Biquad('highpass', o.hpHz, o.hpQ ?? 0.707, 0));
+    if (o.cutDb) this.eq.push(new Biquad('peaking', o.cutF ?? 150, o.cutQ ?? 1.2, o.cutDb));
+    if (o.peakDb) this.eq.push(new Biquad('peaking', o.peakF ?? 1600, o.peakQ ?? 0.9, o.peakDb));
+    if (o.shelfDb) this.eq.push(new Biquad('highshelf', o.shelfF ?? 3500, 0.707, o.shelfDb));
+
     this._load = 0; this._popEnv = 0; this._outLP = 0; this._lift = 0;
     let s = 20240609;
     this._rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
@@ -226,7 +270,9 @@ class EngineProcessor extends AudioWorkletProcessor {
       // resonance (~2.4kHz) doesn't ring out as a metallic clatter.
       const cut = (1100 + this._load * 5200) / SR * 2;
       this._outLP += (y - this._outLP) * Math.min(1, cut);
-      out[i] = Math.tanh(this._outLP * 0.6 * this.level * 2) * 0.5;
+      let tone = this._outLP;
+      for (let e = 0; e < this.eq.length; e++) tone = this.eq[e].get(tone);
+      out[i] = Math.tanh(tone * 0.6 * this.level * 2) * 0.5;
     }
     for (let ch = 1; ch < outputs[0].length; ch++) outputs[0][ch].set(out);
     return true;

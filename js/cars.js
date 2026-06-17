@@ -115,11 +115,16 @@ export const CARS = {
     // flat-6 NA, motorsport-derived — screams to 9000 with strong high-rpm
     // harmonics. (Tuned further in a later audio pass vs a 992 RS spectrogram.)
     engine_model: {
-      cyl: 6, intakeLen: 80, exhaustLen: 60, extractorLen: 74,
-      straightPipeLen: 84, mufflerElements: [6, 9, 13, 17], mufflerAction: 0.10,
-      ignitionTime: 0.011, intakeOpen: 0.24, intakeClosed: 0.9,
+      cyl: 6, intakeLen: 80, exhaustLen: 44, extractorLen: 48,
+      straightPipeLen: 52, mufflerElements: [5, 7, 10, 13], mufflerAction: 0.10,
+      ignitionTime: 0.007, intakeOpen: 0.24, intakeClosed: 0.9,
       exhaustOpen: 0.24, exhaustClosed: 0.95,
-      outletGain: 1.05, intakeMix: 1.0, blockMix: 0.92, decelPops: 0.3, level: 0.55,
+      outletGain: 1.25, intakeMix: 1.0, blockMix: 0.55, decelPops: 0.3, level: 0.72,
+      // tone EQ (this car only): kill the sub-150Hz boom, notch the 150Hz crank
+      // order, lift the flat-6 howl band, add motorsport air — matched to a 992
+      // RS spectrogram via offline-render A/B (tests/engine_render.py).
+      hpHz: 200, hpQ: 0.7, cutF: 150, cutQ: 1.1, cutDb: -7.0,
+      peakF: 950, peakQ: 0.7, peakDb: 5.0, shelfF: 4200, shelfDb: 2.5,
     },
     visual: { color: 0xa7d84b, accent: 0x111111, wing: 'gt', roofY: 0.57, rearY: 0.40 },
     dialMax: 10, dialRed: 9, dialSpeed: 320,

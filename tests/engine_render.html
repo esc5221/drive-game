@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><title>engine offline render</title></head>
+<body><script type="module">
+import { CARS } from '/js/cars.js';
+// Offline-render the engine-processor at a fixed rpm/throttle and return PCM.
+// Used by tests/engine_render.py to spectrum-match the synth against real audio.
+window.__renderEngine = async (carId, rpm, thr, dur) => {
+  const sr = 48000;
+  const ctx = new OfflineAudioContext(1, Math.round(sr*dur), sr);
+  await ctx.audioWorklet.addModule('/js/engine-processor.js');
+  const spec = CARS[carId];
+  const m = spec.engine_model || { cyl: spec.audio.cyl, level: 0.5 };
+  const node = new AudioWorkletNode(ctx, 'engine-processor', {
+    numberOfInputs:0, numberOfOutputs:1, outputChannelCount:[1], processorOptions:m });
+  node.parameters.get('rpm').value = rpm;
+  node.parameters.get('throttle').value = thr;
+  node.parameters.get('redline').value = spec.engine.redline;
+  node.connect(ctx.destination);
+  const buf = await ctx.startRendering();
+  return Array.from(buf.getChannelData(0));
+};
+window.__ready = true;
+</script></body></html>
