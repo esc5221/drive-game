@@ -12,6 +12,8 @@ codebase, shipped to web and Android (Capacitor).
 
 **System Overview — [drive-game.pages.dev/data/game_logic.html](https://drive-game.pages.dev/data/game_logic.html)**
 
+**Build log — [drive-game.pages.dev/making](https://drive-game.pages.dev/making)** — the full session it was built in (Korean, with an English toggle).
+
 ## Features
 
 - **Real tracks** — Nürburgring (20.7 km, OSM geometry + DEM elevation),
