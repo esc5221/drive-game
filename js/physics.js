@@ -36,6 +36,9 @@ function tireCurve(rho) {
 
 const V = () => new THREE.Vector3();
 
+// body-frame contact corners for the guardrail test (module const — no per-step alloc)
+const CORNERS = [[-0.92, -2.15], [0.92, -2.15], [-0.92, 2.15], [0.92, 2.15]];
+
 export class Vehicle {
   constructor(track, spec) {
     this.track = track;
@@ -95,8 +98,22 @@ export class Vehicle {
     this._airTime = 0;
     this.distAccum = 0; this._prevS = 0;
     this.slipFront = 0; this.slipRear = 0;
+    this._flipTime = 0; this.rollover = false;   // sustained inverted -> auto-recover
 
-    this._scratch = { f: V(), p: V(), r: V(), v: V(), t1: V(), t2: V(), t3: V(), q: new THREE.Quaternion() };
+    // scratch pool — every per-step temp reuses one of these so the 240 Hz hot
+    // path allocates nothing (no GC jank). f/p/r/v/t1..t3/q are general temps;
+    // the named ones below are persistent within a step (body axes) or per-call
+    // temps for _addTorque/_walls.
+    this._scratch = {
+      f: V(), p: V(), r: V(), v: V(), t1: V(), t2: V(), t3: V(), q: new THREE.Quaternion(),
+      bodyUp: V(), bodyFwd: V(), bodyRight: V(),   // body axes — persist for the whole step
+      tRight: V(), tVc: V(),                       // tire right vector + contact-point velocity
+      atR: V(), atCross: V(),                      // _addTorque temps
+      wallP: V(), wallN: V(), wallQ: {},           // _walls temps
+      dq: new THREE.Quaternion(),                  // quaternion derivative
+    };
+    this._tDrive = [0, 0, 0, 0];
+    this._tBrake = [0, 0, 0, 0];
     this._bodyQ = {};
   }
 
@@ -122,6 +139,7 @@ export class Vehicle {
     this.gear = 1; this.rpm = this.spec.engine.idle; this.shiftTimer = 0;
     this.distAccum = 0;
     for (const w of this.wheels) { w.omega = 0; w.comp = 0; w.prevComp = 0; }
+    this._flipTime = 0; this.rollover = false;
     const q = this.track.query(p.x, p.z, {});
     if (q) { this.trackS = q.s; this._prevS = q.s; }
   }
@@ -141,9 +159,9 @@ export class Vehicle {
     const S = this._scratch;
     const force = S.t1.set(0, -this.mass * G, 0);   // accumulate world force
     const torque = S.t2.set(0, 0, 0);               // accumulate world torque
-    const bodyUp = S.t3.set(0, 1, 0).applyQuaternion(this.quat).clone();
-    const bodyFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.quat);
-    const bodyRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat);
+    const bodyUp = S.bodyUp.set(0, 1, 0).applyQuaternion(this.quat);
+    const bodyFwd = S.bodyFwd.set(0, 0, -1).applyQuaternion(this.quat);
+    const bodyRight = S.bodyRight.set(1, 0, 0).applyQuaternion(this.quat);
 
     const vFwd = this.vel.dot(bodyFwd);
     this.speed = vFwd;
@@ -238,14 +256,17 @@ export class Vehicle {
     // LSD on the driven axle
     const dOmega = this.wheels[di].omega - this.wheels[di + 1].omega;
     const tLsd = THREE.MathUtils.clamp(dOmega * 350, -1000, 1000);
-    const tDrive = [0, 0, 0, 0];
+    const tDrive = this._tDrive;
+    tDrive[0] = tDrive[1] = tDrive[2] = tDrive[3] = 0;
     tDrive[di] = tAxle / 2 - tLsd / 2;
     tDrive[di + 1] = tAxle / 2 + tLsd / 2;
 
     // brakes
     const brakeT = this.ctrl.brake * sp.brakeT;
     const bias = sp.bias;
-    const tBrake = [brakeT * bias, brakeT * bias, brakeT * (1 - bias), brakeT * (1 - bias)];
+    const tBrake = this._tBrake;
+    tBrake[0] = brakeT * bias; tBrake[1] = brakeT * bias;
+    tBrake[2] = brakeT * (1 - bias); tBrake[3] = brakeT * (1 - bias);
     if (this.ctrl.handbrake) { tBrake[2] += 3000; tBrake[3] += 3000; }
 
     // ---- per wheel: suspension + tire
@@ -312,10 +333,10 @@ export class Vehicle {
         const cs = Math.cos(w.steer), sn = Math.sin(w.steer);
         const fwd = S.f.copy(bodyFwd).multiplyScalar(cs).addScaledVector(bodyRight, sn);
         fwd.addScaledVector(normal, -fwd.dot(normal)).normalize();
-        const right = new THREE.Vector3().crossVectors(fwd, normal).normalize();
+        const right = S.tRight.crossVectors(fwd, normal).normalize();
 
         // contact point velocity
-        const vc = new THREE.Vector3().copy(this.angVel).cross(S.p.copy(contactPt).sub(this.pos)).add(this.vel);
+        const vc = S.tVc.copy(this.angVel).cross(S.p.copy(contactPt).sub(this.pos)).add(this.vel);
         const vLong = vc.dot(fwd), vLat = vc.dot(right);
 
         const slipRatio = (w.omega * w.radius - vLong) / Math.max(Math.abs(vLong), 2.0);
@@ -431,7 +452,7 @@ export class Vehicle {
     if (vMag > 130) this.vel.multiplyScalar(130 / vMag);   // 468 km/h sanity cap
     this.pos.addScaledVector(this.vel, dt);
     const om = this.angVel;
-    const dq = new THREE.Quaternion(om.x * dt / 2, om.y * dt / 2, om.z * dt / 2, 0).multiply(this.quat);
+    const dq = S.dq.set(om.x * dt / 2, om.y * dt / 2, om.z * dt / 2, 0).multiply(this.quat);
     this.quat.x += dq.x; this.quat.y += dq.y; this.quat.z += dq.z; this.quat.w += dq.w;
     this.quat.normalize();
 
@@ -444,6 +465,13 @@ export class Vehicle {
       this.reset(isFinite(this.trackS) ? this.trackS : 0);
       return;
     }
+
+    // ---- rollover watchdog: car body-up Y < 0.3 (≈72° tilted/inverted) held for
+    // 1.5 s = stuck on its side/roof. The suspension raycast props the car up in
+    // any orientation, so a flip is otherwise a stable state — flag for recovery.
+    const upY = 1 - 2 * (this.quat.x * this.quat.x + this.quat.z * this.quat.z);
+    if (upY < 0.3) this._flipTime += dt; else this._flipTime = 0;
+    this.rollover = this._flipTime > 1.5;
 
     // ---- track position / lap distance
     const tq = this.track.query(this.pos.x, this.pos.z, this._bodyQ);
@@ -470,25 +498,27 @@ export class Vehicle {
   }
 
   _addTorque(torqueAccum, point, dir, mag) {
-    const r = new THREE.Vector3().copy(point).sub(this.pos);
-    torqueAccum.addScaledVector(new THREE.Vector3().crossVectors(r, dir), mag);
+    const S = this._scratch;
+    const r = S.atR.copy(point).sub(this.pos);
+    torqueAccum.addScaledVector(S.atCross.crossVectors(r, dir), mag);
   }
 
   _walls(force, torque) {
     const S = this._scratch;
-    const corners = [[-0.92, -2.15], [0.92, -2.15], [-0.92, 2.15], [0.92, 2.15]];
-    for (const [cx, cz] of corners) {
-      const p = new THREE.Vector3(cx, -0.1, cz).applyQuaternion(this.quat).add(this.pos);
-      const q = this.track.query(p.x, p.z, {});
+    for (const [cx, cz] of CORNERS) {
+      // apply the wall normal force at CoM height (y=0): pushing below the CoM
+      // produced a roll torque that flipped the car when grinding the rail.
+      const p = S.wallP.set(cx, 0.0, cz).applyQuaternion(this.quat).add(this.pos);
+      const q = this.track.query(p.x, p.z, S.wallQ);
       if (!q) continue;
       const pen = Math.abs(q.d) - WALL_D;
       if (pen <= 0) continue;
       const outX = Math.sign(q.d) * q.rx, outZ = Math.sign(q.d) * q.rz;     // outward lateral
-      const vc = new THREE.Vector3().copy(this.angVel).cross(S.p.copy(p).sub(this.pos)).add(this.vel);
+      const vc = S.tVc.copy(this.angVel).cross(S.p.copy(p).sub(this.pos)).add(this.vel);
       const vOut = vc.x * outX + vc.z * outZ;
       let fN = pen * 50000 + Math.max(0, vOut) * 4000;
       fN = Math.min(fN, 55000);
-      const n = new THREE.Vector3(-outX, 0, -outZ);
+      const n = S.wallN.set(-outX, 0, -outZ);
       force.addScaledVector(n, fN);
       this._addTorque(torque, p, n, fN);
       // scrape friction along the rail — applied at CoM (no torque) so a
@@ -501,6 +531,13 @@ export class Vehicle {
       }
       // bleed off yaw rate while grinding the rail
       this.angVel.y *= 1 - Math.min(0.5, fN / 55000) * 0.04;
+      // bleed ROLL rate (rotation about the car's longitudinal axis) on contact:
+      // a wall hit tips the car and the corner force then feeds the tilt into a
+      // flip. Damping only the roll component stops the easy rollover while
+      // leaving yaw (cornering) and pitch (jumps/landings) untouched — so the
+      // rest of the driving feel is unaffected.
+      const rollRate = this.angVel.dot(S.bodyFwd);
+      this.angVel.addScaledVector(S.bodyFwd, -rollRate * Math.min(0.7, fN / 55000) * 0.16);
       this.scrape = Math.min(1, Math.max(this.scrape, fN / 30000));
     }
   }
