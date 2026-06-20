@@ -63,8 +63,7 @@ export class CarAudio {
 
     this.rasp = noiseSrc('bandpass', 1800, 1.2);     // exhaust texture
     this.wind = noiseSrc('lowpass', 600, 0.5);
-    this.squeal = noiseSrc('bandpass', 950, 4.0);    // lateral tire cry
-    this.scrub = noiseSrc('bandpass', 420, 2.0);     // combined-slip grind
+    this.scrub = noiseSrc('bandpass', 600, 1.0);     // combined-slip rubber grind (low)
     this.roar = noiseSrc('lowpass', 280, 0.7);       // asphalt rumble
     this.grass = noiseSrc('lowpass', 220, 0.8);
     this.scrapeN = noiseSrc('highpass', 1800, 1.0);
@@ -101,6 +100,14 @@ export class CarAudio {
     this.limLfo.connect(this.limDepth);
     this.limDepth.connect(this.limN.g.gain);
     this.limLfo.start();
+
+    // lateral tire squeal — 2-VOICE CROSS-LOOP of a real skid recording.
+    // Procedural synth read as whistle/cat/vacuum; granular killed the sustained
+    // "끼익" tone (too chopped). A plain loop repeats audibly every ~1.5 s. So:
+    // two looping voices crossfade, and the resting voice jumps to a random
+    // offset (+ slow pitch drift) each rotation — the main tone stays solid while
+    // which slice you hear keeps changing, so it never audibly repeats.
+    this._loadSkid('/samples/skid.mp3');
 
     // turbo whistle
     const tw = ctx.createOscillator(); tw.type = 'sine'; tw.frequency.value = 2000;
@@ -221,27 +228,65 @@ export class CarAudio {
     this.wind.g.gain.setTargetAtTime(this._g('wind', Math.min(0.5, Math.pow(v / 65, 2.6) * 0.5)), t, 0.12);
     this.wind.f.frequency.setTargetAtTime(400 + v * 14, t, 0.12);
 
-    // ---- tires: split lateral squeal vs combined scrub vs longitudinal lockup
-    const onRoad = vehicle.onTrack;
-    let latSlip = 0, longSlip = 0, onCurb = false, lock = 0;
+    // ---- tires: lateral squeal / combined scrub / braking lockup.
+    // Gated on the actual slip ANGLE (not its sine), starting near the grip
+    // limit (~0.05 rad) so the cry rises the instant you lean on the tire — the
+    // old 0.12 deadzone only opened in a full drift. (measured: a normal corner
+    // peaked at squeal gain ~0.01.)  ss = smoothstep.
+    const ss = (e0, e1, x) => { x = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return x * x * (3 - 2 * x); };
+    let maxSA = 0, maxSR = 0, lock = 0, onCurb = false;
     for (const w of vehicle.wheels) {
       if (!w.contact) continue;
-      latSlip = Math.max(latSlip, Math.abs(Math.sin(w.slipAngle)));
-      longSlip = Math.max(longSlip, Math.abs(w.slipRatio));
-      if (w.slipRatio < -0.18) lock = Math.max(lock, -w.slipRatio);   // wheel locking up
+      if (w.surf !== SURF.GRASS) {                       // grass has its own layer
+        maxSA = Math.max(maxSA, Math.abs(w.slipAngle));
+        maxSR = Math.max(maxSR, Math.abs(w.slipRatio));
+      }
+      if (w.slipRatio < -0.10 && vehicle.ctrl.brake > 0.1) lock = Math.max(lock, -w.slipRatio);
       if (w.surf === SURF.CURB) onCurb = true;
     }
-    const vF = Math.min(1, v / 7);
-    const sq = onRoad ? Math.max(0, latSlip - 0.12) * 2.2 : 0;
-    this.squeal.g.gain.setTargetAtTime(this._g('tireSqueal', Math.min(0.30, sq * 0.30) * vF), t, 0.05);
-    this.squeal.f.frequency.setTargetAtTime(750 + latSlip * 900 + v * 2, t, 0.08);
-    const sc = onRoad ? Math.max(0, longSlip - 0.12) * 1.6 : 0;
-    this.scrub.g.gain.setTargetAtTime(this._g('tireScrub', Math.min(0.25, sc * 0.25) * vF), t, 0.05);
-    // lockup: hard braking, ABS not catching, wheel sliding (distinct lower cry)
-    const braking = vehicle.ctrl.brake > 0.4 && v > 2;
-    const lockAmt = (braking && !vehicle._absActive) ? Math.min(1, (lock - 0.18) * 2.2) : 0;
-    this.lockup.g.gain.setTargetAtTime(this._g('lockup', Math.min(0.22, lockAmt * 0.22) * Math.min(1, v / 5)), t, 0.04);
-    this.lockup.f.frequency.setTargetAtTime(430 + v * 4, t, 0.1);
+    // speed factor: keep a floor at low speed so slow slides still hiss
+    const speedF = 0.3 + 0.7 * ss(2, 18, v);
+
+    // lateral squeal — 2-voice cross-loop (see _loadSkid/_spawnVoice). slip drives
+    // the overall LEVEL (skidGain) + brightness + a slow pitch rise; the two
+    // voices crossfade and re-seed to random offsets so it never audibly repeats.
+    // trigger near the grip limit, not at the faintest yaw — a real car only
+    // squeals when the tyre is actually sliding, so the skid means something.
+    const sq = ss(0.07, 0.20, maxSA);
+    const sqSpeedF = 0.25 + 0.75 * ss(3, 22, v);
+    const skidG = this._g('tireSqueal', Math.min(0.6, Math.pow(sq, 1.1) * sqSpeedF * 0.7 + (vehicle.tcCut || 0) * 0.06));
+    if (this.skidGain) this.skidGain.gain.setTargetAtTime(skidG, t, 0.04);
+    if (this.skidLP) this.skidLP.frequency.setTargetAtTime(2400 + sq * 3200 + v * 10, t, 0.08);
+    if (this.skidVoices) {
+      const baseRate = 0.98 + sq * 0.10;                     // pitch rises slightly with slip
+      for (const vc of this.skidVoices) if (vc.src) vc.src.playbackRate.setTargetAtTime(baseRate * vc.drift, t, 0.8);
+      if (t > this._nextRotate) {                            // rotate: reseed resting voice, crossfade it in
+        const rest = 1 - this._mainVoice;
+        this._spawnVoice(rest);
+        const xf = 0.45;
+        this.skidVoices[rest].gain.gain.setTargetAtTime(1, t, xf);
+        this.skidVoices[this._mainVoice].gain.gain.setTargetAtTime(0.0001, t, xf);
+        this._mainVoice = rest;
+        this._nextRotate = t + 1.2 + Math.random() * 1.0;
+      }
+    }
+
+    // combined-slip scrub: both lateral & longitudinal saturation (the rubber
+    // "grind" under trail-brake / power-down), from the combined-slip magnitude.
+    const combined = Math.hypot(maxSR / 0.10, maxSA / 0.14);
+    const sc = ss(0.8, 1.7, combined);
+    this.scrub.g.gain.setTargetAtTime(this._g('tireScrub', Math.min(0.26, sc * sqSpeedF * 0.12)), t, 0.04);
+    this.scrub.f.frequency.setTargetAtTime(420 + v * 8 + combined * 130, t, 0.08);
+
+    // braking lockup: a long skid when ABS is off, a chopped chirp when ABS is
+    // catching (so the brake-limit sound never just vanishes).
+    const braking = vehicle.ctrl.brake > 0.35 && v > 2;
+    const lockAmt = braking ? ss(0.10, 0.38, lock) : 0;
+    const chop = vehicle._absActive ? (0.45 + 0.55 * ((performance.now() * 0.02 | 0) % 2)) : 1;
+    const lockG = lockAmt * (vehicle._absActive ? 0.12 : 0.34) * speedF * chop;
+    this.lockup.g.gain.setTargetAtTime(this._g('lockup', Math.min(0.34, lockG)), t, 0.02);
+    this.lockup.f.frequency.setTargetAtTime(560 + v * 8, t, 0.08);
+    const onRoad = vehicle.onTrack;
 
     // asphalt roar (subtle, grows with speed)
     this.roar.g.gain.setTargetAtTime(this._g('roar', onRoad ? Math.min(0.10, v * 0.0011) : 0), t, 0.15);
@@ -320,6 +365,52 @@ export class CarAudio {
       this._burst('bandpass', 720, 1.2, this._g('shift', P.braap * w), 0.13);
       this._burst('lowpass', 380, 0.8, this._g('shift', P.braap * 0.6 * w), 0.10);
     }
+  }
+
+  // load the skid recording + build the shared gain/filter chain now so update()
+  // can drive it immediately; two looping voices start once the buffer decodes.
+  // skidHP→skidLP→skidGain→master is the common bus; both voices feed skidHP.
+  _loadSkid(url) {
+    const ctx = this.ctx;
+    this.skidGain = ctx.createGain(); this.skidGain.gain.value = 0;
+    this.skidLP = ctx.createBiquadFilter(); this.skidLP.type = 'lowpass'; this.skidLP.frequency.value = 3000;
+    this.skidHP = ctx.createBiquadFilter(); this.skidHP.type = 'highpass'; this.skidHP.frequency.value = 480;
+    this.skidHP.connect(this.skidLP); this.skidLP.connect(this.skidGain); this.skidGain.connect(this.master);
+    this._skidBuf = null; this.skidVoices = null; this._mainVoice = 0; this._nextRotate = 0;
+    fetch(url).then(r => r.arrayBuffer()).then(a => ctx.decodeAudioData(a))
+      .then(b => { this._skidBuf = b; this._startVoices(); })
+      .catch(() => { /* sample missing — squeal stays silent */ });
+  }
+
+  // two looping voices into skidHP; voice 0 starts as main (gain 1), voice 1 rests.
+  _startVoices() {
+    if (!this._skidBuf || this.skidVoices) return;
+    const ctx = this.ctx;
+    this.skidVoices = [0, 1].map(() => {
+      const gain = ctx.createGain(); gain.gain.value = 0; gain.connect(this.skidHP);
+      return { gain, src: null, drift: 1 };
+    });
+    this._mainVoice = 0;
+    this._spawnVoice(0); this._spawnVoice(1);
+    this.skidVoices[0].gain.gain.value = 1;                  // voice 0 audible first
+    this._nextRotate = ctx.currentTime + 1.2 + Math.random() * 1.0;
+  }
+
+  // (re)start a voice's looping source at a random offset within the clean region
+  // of the sample, with a fresh slow pitch-drift factor. Old source fades out.
+  _spawnVoice(i) {
+    const ctx = this.ctx, buf = this._skidBuf, vc = this.skidVoices[i];
+    const lo = 0.05, hi = Math.max(lo + 0.5, buf.duration - 0.12);
+    const off = lo + Math.random() * (hi - lo);
+    vc.drift = 0.97 + Math.random() * 0.08;                  // 0.97–1.05 per-voice pitch
+    const src = ctx.createBufferSource();
+    src.buffer = buf; src.loop = true; src.loopStart = lo; src.loopEnd = hi;
+    src.playbackRate.value = vc.drift;
+    src.connect(vc.gain);
+    src.start(ctx.currentTime, off);
+    const old = vc.src;
+    if (old) { try { old.stop(ctx.currentTime + 0.6); } catch (e) {} }
+    vc.src = src;
   }
 
   // one-shot enveloped noise burst
