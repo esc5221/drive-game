@@ -127,10 +127,10 @@ input.onKey = code => {
       carVis.setCameraMode(camMode);
       break;
     case 'ShiftLeft': case 'ShiftRight': case 'ArrowUp':
-      if (!vehicle.auto) vehicle.shiftUp();
+      if (!vehicle.auto || input.arrowsMode === 'shift') vehicle.shiftUp();
       break;
     case 'ControlLeft': case 'ControlRight': case 'ArrowDown':
-      if (!vehicle.auto) vehicle.shiftDown();
+      if (!vehicle.auto || input.arrowsMode === 'shift') vehicle.shiftDown();
       break;
     case 'KeyM':
       vehicle.auto = !vehicle.auto;
@@ -234,11 +234,13 @@ const settings = new SettingsPanel({
     car: carId, cam: camMode, ctrl: TOUCH ? input.mode : 'buttons',
     tc: vehicle.tc, abs: vehicle.abs, auto: vehicle.auto,
     line: raceLine.mode, ghost: ghost.enabled, preset: atmo.idx,
+    arrows: input.arrowsMode,
   }),
   setCar,
   setLineMode: m => { raceLine.setMode(m); },
   setCam: i => { camMode = i; carVis.setCameraMode(i); },
   setCtrl: m => { if (TOUCH) input.setMode(m); },
+  setArrows: m => { if (input.setArrows) input.setArrows(m); },
   setPreset: i => { atmo.apply(i); applyNight(); },
   gfxCfg: () => gfx,
   gfxDefs: () => GFX_DEFS,

@@ -99,6 +99,7 @@ export class Vehicle {
     this.distAccum = 0; this._prevS = 0;
     this.slipFront = 0; this.slipRear = 0;
     this._flipTime = 0; this.rollover = false;   // sustained inverted -> auto-recover
+    this._manualHold = 0;   // manual gear change -> hold auto-shift off briefly
 
     // scratch pool — every per-step temp reuses one of these so the 240 Hz hot
     // path allocates nothing (no GC jank). f/p/r/v/t1..t3/q are general temps;
@@ -140,18 +141,19 @@ export class Vehicle {
     this.distAccum = 0;
     for (const w of this.wheels) { w.omega = 0; w.comp = 0; w.prevComp = 0; }
     this._flipTime = 0; this.rollover = false;
+    this._manualHold = 0;
     const q = this.track.query(p.x, p.z, {});
     if (q) { this.trackS = q.s; this._prevS = q.s; }
   }
 
-  shiftUp() { if (this.gear >= 1 && this.gear < this.spec.gears.length && this.shiftTimer <= 0) { this.gear++; this.shiftTimer = 0.18; } else if (this.gear === -1) this.gear = 1; else if (this.gear === 0) this.gear = 1; }
+  shiftUp() { if (this.gear >= 1 && this.gear < this.spec.gears.length && this.shiftTimer <= 0) { this.gear++; this.shiftTimer = 0.18; this._manualHold = 2.0; } else if (this.gear === -1) this.gear = 1; else if (this.gear === 0) this.gear = 1; }
   shiftDown() {
     if (this.gear > 1 && this.shiftTimer <= 0) {
       // block downshifts that would overrev
       const ratio = this.spec.gears[this.gear - 2] * this.spec.final;
       const di = this.drivenFront ? 0 : 2;
       const wAvg = (this.wheels[di].omega + this.wheels[di + 1].omega) / 2;
-      if (wAvg * ratio * 60 / (2 * Math.PI) < this.spec.engine.redline + 300) { this.gear--; this.shiftTimer = 0.18; }
+      if (wAvg * ratio * 60 / (2 * Math.PI) < this.spec.engine.redline + 300) { this.gear--; this.shiftTimer = 0.18; this._manualHold = 2.0; }
     } else if (this.gear === 1 && Math.abs(this.speed) < 1.5) this.gear = -1;
   }
 
@@ -211,7 +213,8 @@ export class Vehicle {
     // upshifts while launching or near standstill)
     if (this.shiftTimer > 0) this.shiftTimer -= dt;
     if (this.shiftCooldown > 0) this.shiftCooldown -= dt;
-    if (this.auto && this.gear >= 1 && this.shiftTimer <= 0 && this.shiftCooldown <= 0 && !launching) {
+    if (this._manualHold > 0) this._manualHold -= dt;
+    if (this.auto && this.gear >= 1 && this.shiftTimer <= 0 && this.shiftCooldown <= 0 && !launching && this._manualHold <= 0) {
       // Classic, predictable auto-shift — what most racing games actually do:
       // upshift near the limiter, downshift once the revs fall below the band.
       // rpm comes from road speed (wheelspin-immune) so a launch can't false-shift,

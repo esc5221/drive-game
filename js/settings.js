@@ -91,6 +91,12 @@ export class SettingsPanel {
         ['Button', () => this.api.setCtrl('buttons')],
         ['Tilt (gyro)', () => this.api.setCtrl('tilt')],
       ])));
+    } else if (this.api.setArrows) {
+      // keyboard: choose what the ↑↓ arrow keys do (W/S are always the pedals)
+      gen.appendChild(ROW('Arrow keys', group('arrows', [
+        ['Pedals', () => this.api.setArrows('drive')],
+        ['Shifter', () => this.api.setArrows('shift')],
+      ])));
     }
 
     gen.appendChild(ROW('Camera', group('cam', [
@@ -196,6 +202,7 @@ export class SettingsPanel {
     const carIds = Object.values(CARS).filter(c => !c.hidden).map(c => c.id);
     this._mark('car', carIds.indexOf(s.car));
     if (this.btns.ctrl) this._mark('ctrl', s.ctrl === 'tilt' ? 1 : 0);
+    if (this.btns.arrows) this._mark('arrows', s.arrows === 'shift' ? 1 : 0);
     this._mark('cam', s.cam);
     this.btns.tc[0].classList.toggle('active', s.tc);
     this.btns.abs[0].classList.toggle('active', s.abs);

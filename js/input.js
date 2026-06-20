@@ -9,6 +9,8 @@ export class Input {
     this.handbrake = false;
     this.onKey = null;     // discrete key callback
     this.anyInput = false;
+    // 'drive' = ↑↓ are pedals (default); 'shift' = W/S pedals, ↑↓ shift gears
+    this.arrowsMode = localStorage.getItem('ns-arrows') || 'drive';
 
     addEventListener('keydown', e => {
       if (e.repeat) { e.preventDefault(); return; }
@@ -47,12 +49,16 @@ export class Input {
     // manual mode: ↑/↓ become the shifter (handled as discrete keys in main),
     // so only W/S drive the pedals
     const manual = !vehicle.auto;
-    const accel = this.down('KeyW') || (!manual && this.down('ArrowUp'));
-    const brake = this.down('KeyS') || (!manual && this.down('ArrowDown'));
+    // ↑↓ drive the pedals only in 'drive' mode; in 'shift' mode they shift gears
+    const arrowsPedal = !manual && this.arrowsMode !== 'shift';
+    const accel = this.down('KeyW') || (arrowsPedal && this.down('ArrowUp'));
+    const brake = this.down('KeyS') || (arrowsPedal && this.down('ArrowDown'));
     this.throttle = step(this.throttle, accel ? 1 : 0, accel ? 3.5 : 8, dt);
     this.brake = step(this.brake, brake ? 1 : 0, brake ? 5.5 : 10, dt);
     this.handbrake = this.down('Space');
   }
+
+  setArrows(m) { this.arrowsMode = m; localStorage.setItem('ns-arrows', m); }
 }
 
 function step(cur, target, rate, dt) {
