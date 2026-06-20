@@ -1,24 +1,24 @@
-// Dynamic racing line (Forza/GT style): a ribbon along the driving line whose
-// color tells the driver what to do RIGHT NOW given current speed —
-// green = flat out, yellow = lift, red = brake.
+// Dynamic racing line (Forza/GT style): a thin feathered ribbon along the
+// driving line whose color tells the driver what to do RIGHT NOW given current
+// speed — green = flat out, yellow = lift, red = brake.
 //
-// Physics: per-point cornering speed limit v = sqrt(mu*g/|curv|), propagated
-// backward through braking distance so the red zone appears exactly where a
-// real braking point is.
+// Line geometry: a min-curvature pass establishes the corridor line, then a
+// phase-bias refinement pushes it toward a real LATE-APEX line (wide entry →
+// late inside apex → wide exit). The speed profile uses both a backward braking
+// pass AND a forward acceleration pass, so the value of opening the exit (the
+// whole point of a late apex) actually shows up in the colors.
 import * as THREE from 'three';
 
-// Proper racing line: iterative path-straightening inside the track width.
-// Each pass pulls every point toward its neighbors' midpoint (constrained to
-// the lateral corridor) — converging on a shortest/least-curvature path that
-// naturally produces out-in-out lines and late apexes.
-// Used by: the guide ribbon, the rubber darkening, vAllowed.
+// ---- racing line offsets (cached once) ------------------------------------
 let _cache = null;
 export function racingLineOffsets(track) {
   if (_cache) return _cache;
   const n = track.n;
-  const d = new Float32Array(n);
-  const lim = 3.1;                              // keep ~1.4m off the edges
   const px = track.px, pz = track.pz, rx = track.rx, rz = track.rz;
+  const lim = 3.1;                              // lateral corridor (keep off edges)
+
+  // (1) min-curvature base line: pull each point toward its neighbours' midpoint
+  const d = new Float32Array(n);
   for (let iter = 0; iter < 260; iter++) {
     for (let i = 0; i < n; i++) {
       const a = (i - 1 + n) % n, b = (i + 1) % n;
@@ -29,14 +29,71 @@ export function racingLineOffsets(track) {
       d[i] += (nd - d[i]) * 0.6;
     }
   }
+
+  // (2) centerline signed curvature, smoothed — drives corner strength & phase
+  const kc = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = (i - 1 + n) % n, b = (i + 1) % n;
+    let ax = px[i] - px[a], az = pz[i] - pz[a];
+    let bx = px[b] - px[i], bz = pz[b] - pz[i];
+    const la = Math.hypot(ax, az) || 1, lb = Math.hypot(bx, bz) || 1;
+    ax /= la; az /= la; bx /= lb; bz /= lb;
+    const cross = ax * bz - az * bx;
+    kc[i] = Math.asin(THREE.MathUtils.clamp(cross, -1, 1)) / ((la + lb) / 2);
+  }
+  const smooth = (arr, passes) => {
+    for (let p = 0; p < passes; p++) {
+      const t = arr.slice();
+      for (let i = 0; i < n; i++) arr[i] = (t[(i - 1 + n) % n] + t[i] * 2 + t[(i + 1) % n]) / 4;
+    }
+  };
+  smooth(kc, 4);
+
+  // inside direction = sign of the min-curvature offset (it leans into bends);
+  // this is robust regardless of the curvature sign convention.
+  const ds = d.slice(); smooth(ds, 3);
+  const insideDir = new Float32Array(n);
+  const turn = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    insideDir[i] = Math.sign(ds[i]) || 1;
+    turn[i] = THREE.MathUtils.smoothstep(Math.abs(kc[i]), 0.006, 0.035);
+  }
+
+  // (3) late-apex phase bias: apex (curvature peak, |dk| small) -> inside,
+  // entry/exit (curvature changing, |dk| large) -> outside. L = look-ahead.
+  const L = 8;
+  for (let iter = 0; iter < 70; iter++) {
+    for (let i = 0; i < n; i++) {
+      const a = (i - 1 + n) % n, b = (i + 1) % n;
+      const mx = (px[a] + rx[a] * d[a] + px[b] + rx[b] * d[b]) * 0.5;
+      const mz = (pz[a] + rz[a] * d[a] + pz[b] + rz[b] * d[b]) * 0.5;
+      let nd = (mx - px[i]) * rx[i] + (mz - pz[i]) * rz[i];
+
+      const kAhd = Math.abs(kc[(i + L) % n]), kBeh = Math.abs(kc[(i - L + n) % n]);
+      const dk = Math.abs(kAhd - kBeh);
+      const dkN = THREE.MathUtils.clamp(dk / (0.5 * (kAhd + kBeh) + 1e-4), 0, 1);
+      const apexW = turn[i] * (1 - dkN);     // near the apex
+      const eeW = turn[i] * dkN;             // entry / exit
+      nd += insideDir[i] * lim * 0.30 * (apexW * 0.85 - eeW * 0.65);
+
+      if (nd > lim) nd = lim; else if (nd < -lim) nd = -lim;
+      d[i] += (nd - d[i]) * 0.52;            // gentler relax: bias settles cleanly
+    }
+  }
+
   _cache = d;
   return d;
 }
 
-const COL_BASE = [0.30, 0.30, 0.34];
-const COL_GREEN = [0.10, 0.85, 0.30];
-const COL_YELLOW = [1.00, 0.80, 0.08];
-const COL_RED = [1.00, 0.10, 0.06];
+// ---- colours ---------------------------------------------------------------
+const COL_BASE = [0.16, 0.17, 0.20];
+const COL_GREEN = [0.05, 0.92, 0.30];
+const COL_YELLOW = [1.00, 0.78, 0.05];
+const COL_RED = [1.00, 0.06, 0.03];
+
+// ribbon cross-section (total 0.80 m): a bright opaque core + feathered edges
+const W_CORE = 0.27;     // core half-width  (alpha = 1)
+const W_EDGE = 0.40;     // edge half-width  (alpha = 0 -> soft fade)
 
 export class RaceLine {
   constructor(scene, track) {
@@ -45,9 +102,8 @@ export class RaceLine {
     this.offsets = racingLineOffsets(track);
     this.mode = +(localStorage.getItem('ns-line') ?? 2);   // 0 off, 1 brake-only, 2 full
 
-    // ---- allowed-speed profile from the LINE's curvature (flatter than the
-    // centerline through corners — that's the whole point of a racing line)
-    const MU = 1.12, G = 9.81, VMAX = 80, ABRAKE = 8.8;
+    // ---- allowed-speed profile from the LINE's curvature -------------------
+    const MU = 1.12, G = 9.81, VMAX = 80, ABRAKE = 8.8, ADRIVE = 6.0;
     const lx = new Float32Array(n), lz = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       lx[i] = track.px[i] + track.rx[i] * this.offsets[i];
@@ -64,47 +120,55 @@ export class RaceLine {
       const k = Math.abs(Math.asin(THREE.MathUtils.clamp(cy, -1, 1))) / ((la + lb) / 2);
       v[i] = k > 1e-4 ? Math.min(VMAX, Math.sqrt(MU * G / k)) : VMAX;
     }
-    // smooth, then backward braking pass (wraps)
+    // smooth, then backward braking pass + forward acceleration pass (both wrap).
+    // forward pass is what makes the late-apex "open exit" pay off in the colors.
     for (let p = 0; p < 2; p++) {
-      for (let i = 0; i < n; i++) {
-        v[i] = (v[(i - 1 + n) % n] + v[i] * 2 + v[(i + 1) % n]) / 4;
-      }
+      for (let i = 0; i < n; i++) v[i] = (v[(i - 1 + n) % n] + v[i] * 2 + v[(i + 1) % n]) / 4;
     }
     for (let i = 2 * n - 1; i >= 0; i--) {
       const a = i % n, b = (i + 1) % n;
       const lim = Math.sqrt(v[b] * v[b] + 2 * ABRAKE * track.step);
       if (v[a] > lim) v[a] = lim;
     }
+    for (let i = 0; i < 2 * n; i++) {
+      const a = i % n, b = (i + 1) % n;
+      const lim = Math.sqrt(v[a] * v[a] + 2 * ADRIVE * track.step);
+      if (v[b] > lim) v[b] = lim;
+    }
     this.vAllowed = v;
 
-    // ---- ribbon geometry (1.0 m wide, on the racing line)
-    const pos = new Float32Array(n * 2 * 3);
-    this.colors = new Float32Array(n * 2 * 3);
+    // ---- ribbon geometry: 4 vertices per point (edgeL, coreL, coreR, edgeR) -
+    // colour buffer is RGBA (itemSize 4) so per-vertex alpha feathers the edges.
+    const pos = new Float32Array(n * 4 * 3);
+    this.colors = new Float32Array(n * 4 * 4);
     const idx = [];
     const e = new THREE.Vector3();
+    const lat = [-W_EDGE, -W_CORE, W_CORE, W_EDGE];
     for (let i = 0; i < n; i++) {
-      for (let side = 0; side < 2; side++) {
-        const d = this.offsets[i] + (side ? 0.5 : -0.5);
-        track.edge(i, d, 0.03, e);
-        const o = (i * 2 + side) * 3;
+      for (let s = 0; s < 4; s++) {
+        track.edge(i, this.offsets[i] + lat[s], 0.04, e);
+        const o = (i * 4 + s) * 3;
         pos[o] = e.x; pos[o + 1] = e.y; pos[o + 2] = e.z;
       }
-      const a = i * 2, b = ((i + 1) % n) * 2;
-      idx.push(a, a + 1, b, a + 1, b + 1, b);
+      const a = i * 4, b = ((i + 1) % n) * 4;
+      // three strips: left feather, core, right feather
+      idx.push(a, a + 1, b, a + 1, b + 1, b);          // edgeL..coreL
+      idx.push(a + 1, a + 2, b + 1, a + 2, b + 2, b + 1); // coreL..coreR
+      idx.push(a + 2, a + 3, b + 2, a + 3, b + 3, b + 2); // coreR..edgeR
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.colorAttr = new THREE.BufferAttribute(this.colors, 3);
+    this.colorAttr = new THREE.BufferAttribute(this.colors, 4);
     geo.setAttribute('color', this.colorAttr);
     geo.setIndex(idx);
 
     this.material = new THREE.MeshBasicMaterial({
-      vertexColors: true, transparent: true, opacity: 0.72,
+      vertexColors: true, transparent: true, opacity: 0.85,
       depthWrite: false, polygonOffset: true,
-      polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+      polygonOffsetFactor: -3, polygonOffsetUnits: -3,
     });
     this.mesh = new THREE.Mesh(geo, this.material);
-    this.mesh.renderOrder = 5;
+    this.mesh.renderOrder = 6;
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
     this._applyMode();
@@ -112,10 +176,9 @@ export class RaceLine {
 
   _applyMode() {
     this.mesh.visible = this.mode > 0;
-    // brake-only: additive blending makes black vertices invisible, so only
-    // the red braking zones glow on the road
+    // brake-only: additive blending so only the red braking zones glow
     this.material.blending = this.mode === 1 ? THREE.AdditiveBlending : THREE.NormalBlending;
-    this.material.opacity = this.mode === 1 ? 0.9 : 0.72;
+    this.material.opacity = this.mode === 1 ? 0.95 : 0.85;
     localStorage.setItem('ns-line', String(this.mode));
   }
 
@@ -125,47 +188,57 @@ export class RaceLine {
     return ['Off', 'Brake guide', 'Full line'][this.mode];
   }
 
-  _baseColorAt(i) {
-    if (this.mode === 1) return [0, 0, 0];      // brake-only: invisible (additive)
-    return [COL_BASE[0] * 0.5, COL_BASE[1] * 0.5, COL_BASE[2] * 0.5];
+  // base (inactive / behind-car) colour for one point: dim grey in full mode,
+  // invisible in brake-only. Returns [r,g,b,a].
+  _baseColorAt() {
+    if (this.mode === 1) return [0, 0, 0, 0];
+    return [COL_BASE[0], COL_BASE[1], COL_BASE[2], 0.5];
+  }
+
+  // write one point's 4 vertices: core gets the colour at `coreA`, edges get the
+  // same rgb at alpha 0 (feather). `rgb` is the lit colour, `a` the core alpha.
+  _writePoint(i, rgb, coreA) {
+    const c = this.colors, o = i * 16;
+    const r = rgb[0], g = rgb[1], b = rgb[2];
+    // edgeL (alpha 0)
+    c[o] = r; c[o + 1] = g; c[o + 2] = b; c[o + 3] = 0;
+    // coreL
+    c[o + 4] = r; c[o + 5] = g; c[o + 6] = b; c[o + 7] = coreA;
+    // coreR
+    c[o + 8] = r; c[o + 9] = g; c[o + 10] = b; c[o + 11] = coreA;
+    // edgeR (alpha 0)
+    c[o + 12] = r; c[o + 13] = g; c[o + 14] = b; c[o + 15] = 0;
   }
 
   _paintBaseAll() {
-    const n = this.track.n, c = this.colors;
-    for (let i = 0; i < n; i++) {
-      const [r, g, b] = this._baseColorAt(i);
-      const o = i * 6;
-      c[o] = r; c[o + 1] = g; c[o + 2] = b;
-      c[o + 3] = r; c[o + 4] = g; c[o + 5] = b;
-    }
+    const n = this.track.n;
+    const [r, g, b, a] = this._baseColorAt();
+    for (let i = 0; i < n; i++) this._writePoint(i, [r, g, b], a);
     if (this.colorAttr.clearUpdateRanges) this.colorAttr.clearUpdateRanges();
     this.colorAttr.needsUpdate = true;
     this._prevStart = -1;
   }
 
-  // windowed recolor: only ~300 points around the car are touched and only
-  // those bytes are re-uploaded (the 20km full-buffer rewrite hurt mobile)
+  // windowed recolour: only ~300 points around the car are touched and only
+  // those bytes are re-uploaded.
   update(carS, carSpeed) {
     if (!this.mesh.visible) return;
     if (this._lastMode !== this.mode) { this._lastMode = this.mode; this._paintBaseAll(); return; }
     const brakeOnly = this.mode === 1;
     const n = this.track.n, step = this.track.step;
     const i0 = Math.floor(carS / step) % n;
-    const c = this.colors;
-    const BEH = 12, AHD = 281, LEN = BEH + AHD + 1;
-    const start = ((i0 - BEH) % n + n) % n;
     const ranges = [];
+    const [br, bg, bb, ba] = this._baseColorAt();
 
     // restore the previous window to base where it no longer overlaps
+    const BEH = 8, AHD = 300, LEN = BEH + AHD + 1;
+    const start = ((i0 - BEH) % n + n) % n;
     if (this._prevStart >= 0 && this._prevStart !== start) {
       for (let k = 0; k < LEN; k++) {
         const i = (this._prevStart + k) % n;
         const rel = ((i - start) % n + n) % n;
-        if (rel < LEN) continue;                  // still inside the new window
-        const [r, g, b] = this._baseColorAt(i);
-        const o = i * 6;
-        c[o] = r; c[o + 1] = g; c[o + 2] = b;
-        c[o + 3] = r; c[o + 4] = g; c[o + 5] = b;
+        if (rel < LEN) continue;
+        this._writePoint(i, [br, bg, bb], ba);
       }
       ranges.push([this._prevStart, LEN]);
     }
@@ -173,7 +246,7 @@ export class RaceLine {
     for (let k = 0; k < LEN; k++) {
       const i = (start + k) % n;
       const dist = (((i - i0) % n + n) % n) * step;
-      let col = COL_BASE, fade = 0.4;             // behind-car trail dim
+      let col = COL_BASE, fade = 0.34;            // behind-car trail
       if (dist <= AHD * step) {
         const va = this.vAllowed[i];
         if (carSpeed <= va + 0.5) col = COL_GREEN;
@@ -181,22 +254,22 @@ export class RaceLine {
           const req = (carSpeed * carSpeed - va * va) / (2 * Math.max(dist, 2));
           col = req > 5.8 ? COL_RED : req > 2.3 ? COL_YELLOW : COL_GREEN;
         }
-        fade = 1 - 0.75 * (dist / (AHD * step));
+        // narrow ribbon fades out far away → keep the far end alive; keep
+        // warnings legible at distance with a fade floor.
+        fade = 1 - 0.55 * (dist / (AHD * step));
+        if (col === COL_RED) fade = Math.max(fade, 0.70);
+        else if (col === COL_YELLOW) fade = Math.max(fade, 0.58);
       }
-      let r, g, b;
       if (brakeOnly) {
-        const isWarn = col === COL_RED || col === COL_YELLOW;
-        r = isWarn ? col[0] * fade : 0;
-        g = isWarn ? col[1] * fade : 0;
-        b = isWarn ? col[2] * fade : 0;
+        const warn = col === COL_RED || col === COL_YELLOW;
+        this._writePoint(i, warn ? col : [0, 0, 0], warn ? fade : 0);
       } else {
-        r = col[0] * fade + COL_BASE[0] * (1 - fade) * 0.5;
-        g = col[1] * fade + COL_BASE[1] * (1 - fade) * 0.5;
-        b = col[2] * fade + COL_BASE[2] * (1 - fade) * 0.5;
+        // blend lit colour toward the dim base by fade (rgb), alpha = core fade
+        const r = col[0] * fade + COL_BASE[0] * (1 - fade);
+        const g = col[1] * fade + COL_BASE[1] * (1 - fade);
+        const b = col[2] * fade + COL_BASE[2] * (1 - fade);
+        this._writePoint(i, [r, g, b], 0.5 + 0.5 * fade);
       }
-      const o = i * 6;
-      c[o] = r; c[o + 1] = g; c[o + 2] = b;
-      c[o + 3] = r; c[o + 4] = g; c[o + 5] = b;
     }
     ranges.push([start, LEN]);
     this._prevStart = start;
@@ -204,10 +277,10 @@ export class RaceLine {
     if (this.colorAttr.clearUpdateRanges) {
       this.colorAttr.clearUpdateRanges();
       for (const [s0, len] of ranges) {
-        if (s0 + len <= n) this.colorAttr.addUpdateRange(s0 * 6, len * 6);
+        if (s0 + len <= n) this.colorAttr.addUpdateRange(s0 * 16, len * 16);
         else {                                    // wraps the loop seam
-          this.colorAttr.addUpdateRange(s0 * 6, (n - s0) * 6);
-          this.colorAttr.addUpdateRange(0, (s0 + len - n) * 6);
+          this.colorAttr.addUpdateRange(s0 * 16, (n - s0) * 16);
+          this.colorAttr.addUpdateRange(0, (s0 + len - n) * 16);
         }
       }
     }
