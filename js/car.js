@@ -70,8 +70,8 @@ export class CarVisual {
     else this._buildExterior();
     this._buildCockpit();
 
-    this.mirrorRT = new THREE.WebGLRenderTarget(384, 112);
-    this.mirrorCam = new THREE.PerspectiveCamera(26, 384 / 112, 0.5, 1500);
+    this.mirrorRT = new THREE.WebGLRenderTarget(320, 96);
+    this.mirrorCam = new THREE.PerspectiveCamera(26, 320 / 96, 0.5, 400);
     this.mirrorMat.map = this.mirrorRT.texture;
     this.mirrorMat.map.repeat.x = -1;
     this.mirrorMat.map.offset.x = 1;
@@ -137,6 +137,23 @@ export class CarVisual {
       depth: 1.46, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.07, bevelSegments: 2,
     });
     bodyGeo.translate(0, 0, -0.73);
+    // Round the flat extruded roof: above the beltline, crown the section into an
+    // arch (drop the width edges) and pull the greenhouse in (tumblehome). Done in
+    // the extrude frame (x=fore/aft, y=up, z=±half-width) before the rotateY swap.
+    const crownRoof = (geo) => {
+      const beltline = 0.17, halfW = 0.73, CROWN = 0.12, TUMBLE = 0.18;
+      const p = geo.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const y = p.getY(i), z = p.getZ(i);
+        const t = Math.min(1, Math.max(0, (y - beltline) / (roofY - beltline)));
+        if (t <= 0) continue;
+        const zr = Math.min(1, Math.abs(z) / halfW);
+        p.setY(i, y - t * zr * zr * CROWN);   // arch the roof crown
+        p.setZ(i, z * (1 - t * TUMBLE));       // narrow the greenhouse toward the top
+      }
+      geo.computeVertexNormals();
+    };
+    crownRoof(bodyGeo);
     bodyGeo.rotateY(-Math.PI / 2);
     const body = new THREE.Mesh(bodyGeo, paint);
     body.castShadow = true;
@@ -151,6 +168,7 @@ export class CarVisual {
     gShape.closePath();
     const glassGeo = new THREE.ExtrudeGeometry(gShape, { depth: 1.40, bevelEnabled: false });
     glassGeo.translate(0, 0.02, -0.70);
+    crownRoof(glassGeo);                        // follow the roof crown + tumblehome
     glassGeo.rotateY(-Math.PI / 2);
     this.exterior.add(new THREE.Mesh(glassGeo, glassMat));
 
