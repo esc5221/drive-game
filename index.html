@@ -93,12 +93,22 @@
   #t-actions .tbtn { position: relative; width: 58px; height: 42px;
                      font-size: 13px; border-radius: 12px; }
 
+  /* triple-monitor view windows (?eye=): render only the canvas, hide all chrome */
+  body.ns-view { cursor: none; }
+  body.ns-view #timing, body.ns-view #section, body.ns-view #assists, body.ns-view #telemetry,
+  body.ns-view #speedbar, body.ns-view #bottom-right, body.ns-view #minimap-wrap,
+  body.ns-view #center-msg, body.ns-view #help, body.ns-view #reset-btn,
+  body.ns-view #touch-ui, body.ns-view #t-actions, body.ns-view #menu, body.ns-view #settings {
+    display: none !important; }
+
   /* ---------- settings panel ---------- */
-  #settings { position: fixed; inset: 0; z-index: 50; background: rgba(3,7,14,0.78);
+  .set-subtabs { margin-top: -4px; margin-bottom: 10px; opacity: 0.92; }
+  .set-subtabs .set-tab { font-size: 12px; padding-bottom: 4px; }
+  #settings { position: fixed; inset: 0; z-index: 50; background: rgba(3,7,14,0.42);
     display: flex; align-items: center; justify-content: center; pointer-events: auto; }
   #settings-card { background: rgba(13,19,28,0.97); border: 1px solid rgba(255,255,255,0.14);
     border-radius: 16px; padding: 18px 22px; color: #fff; max-height: 88vh; overflow-y: auto;
-    min-width: 340px; max-width: 92vw; font-family: inherit; }
+    width: 380px; max-width: 92vw; font-family: inherit; }
   #settings-card h2 { margin: 0 0 12px; font-size: 18px; color: #ffd24a; letter-spacing: 2px; }
   .set-tabs { display: flex; gap: 4px; margin: 0 0 14px; border-bottom: 1px solid rgba(255,255,255,0.12); }
   .set-tab { background: none; border: none; color: #9aa3ad; font-family: inherit; font-size: 13px;

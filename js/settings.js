@@ -137,20 +137,72 @@ export class SettingsPanel {
     danger.classList.add('danger');
     gen.appendChild(ROW('Records', [danger]));
 
-    // ---- Graphics tab: preset picker on top, individual options below ----
+    // ---- Graphics tab: sub-tabs [Display | Triple] ----
     if (this.api.gfxCfg) {
       const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+      const hasTriple = !!this.api.tripleGeo;
+      const subBar = document.createElement('div'); subBar.className = 'set-tabs set-subtabs';
+      const dispSub = document.createElement('div'); const triSub = document.createElement('div');
+      this._gfxSub = { display: dispSub }; if (hasTriple) this._gfxSub.triple = triSub;
+      this._gfxSubBtns = {};
+      const mkSub = (key, label) => {
+        const b = document.createElement('button'); b.className = 'set-tab'; b.textContent = label;
+        b.addEventListener('click', e => { e.preventDefault(); this.selectGfxSub(key); });
+        this._gfxSubBtns[key] = b; subBar.appendChild(b);
+      };
+      mkSub('display', 'Display'); if (hasTriple) mkSub('triple', 'Triple');
+      gfxPane.appendChild(subBar); gfxPane.appendChild(dispSub); gfxPane.appendChild(triSub);
+
+      // Display sub-pane: preset + per-option
       this._gfxPresetBtns = this.api.gfxPresets().map(name =>
         btn(cap(name), () => this.api.setGfxPreset(name)));   // reloads to re-apply
-      gfxPane.appendChild(ROW('Preset', this._gfxPresetBtns));
-
-      this._gfxOptBtns = {};                                  // key -> [{val, b}]
+      dispSub.appendChild(ROW('Preset', this._gfxPresetBtns));
+      this._gfxOptBtns = {};
       for (const d of this.api.gfxDefs()) {
         this._gfxOptBtns[d.key] = d.opts.map(([label, val]) => ({
           val, b: btn(label, () => { this.api.setGfxOption(d.key, val); this.refresh(); }),
         }));
-        gfxPane.appendChild(ROW(d.label, this._gfxOptBtns[d.key].map(o => o.b)));
+        dispSub.appendChild(ROW(d.label, this._gfxOptBtns[d.key].map(o => o.b)));
       }
+
+      // Triple sub-pane: start/stop + live geometry + reset
+      if (hasTriple) {
+        triSub.appendChild(ROW('Triple monitor', [
+          btn('Open L+R', () => { this.api.tripleStart(); }),
+          btn('Single', () => { this.api.tripleStop(); }),
+        ]));
+        const fovEl = document.createElement('div');
+        fovEl.style.cssText = 'color:#9aa3ad;font-size:11px;letter-spacing:0.5px;';
+        this._updTriFov = () => {
+          const g = this.api.tripleGeo();
+          fovEl.textContent = 'per-screen ' + Math.round(this.api.tripleHFov()) + '°  ·  total ≈ ' + Math.round(this.api.tripleHFov() + 2 * g.angleDeg) + '°';
+        };
+        this._triUpd = [];
+        const stepper = (label, key, step, min, max, unit, dp) => {
+          const valEl = document.createElement('span');
+          valEl.style.cssText = 'min-width:56px;text-align:center;color:#ffd24a;font-size:12px;align-self:center;';
+          const fmt = () => (dp ? this.api.tripleGeo()[key].toFixed(dp) : this.api.tripleGeo()[key]) + (unit || '');
+          const upd = () => { valEl.textContent = fmt(); };
+          upd(); this._triUpd.push(upd);
+          const set = d => {
+            const cur = this.api.tripleGeo()[key];
+            const nv = Math.max(min, Math.min(max, +(cur + d).toFixed(2)));
+            this.api.setTripleGeo(key, nv); upd(); this._updTriFov();
+          };
+          triSub.appendChild(ROW(label, [btn('−', () => set(-step)), valEl, btn('+', () => set(step))]));
+        };
+        stepper('Side angle', 'angleDeg', 5, 0, 85, '°');
+        stepper('Eye distance', 'distM', 0.05, 0.3, 1.5, 'm', 2);
+        stepper('Monitor size', 'diagIn', 1, 19, 49, '"');
+        stepper('Bezel', 'bezelMm', 2, 0, 60, 'mm');
+        this._updTriFov();
+        triSub.appendChild(ROW('FOV', [fovEl]));
+        const reset = btn('Reset to default', () => {
+          this.api.resetTripleGeo(); this._triUpd.forEach(f => f()); this._updTriFov();
+        });
+        triSub.appendChild(ROW('Defaults', [reset]));
+      }
+      this.selectGfxSub((() => { try { return localStorage.getItem('ns-gfx-sub') || 'display'; } catch (e) { return 'display'; } })());
     } else {
       this._tabBtns.graphics.style.display = 'none';
     }
@@ -180,7 +232,7 @@ export class SettingsPanel {
     const resume = btn('Resume', () => this.close());
     resume.id = 'set-resume';
     card.appendChild(resume);
-    this.selectTab('general');
+    this.selectTab((() => { try { return localStorage.getItem('ns-set-tab') || 'general'; } catch (e) { return 'general'; } })());
 
     el.appendChild(card);
     // tap outside the card closes the panel
@@ -191,8 +243,18 @@ export class SettingsPanel {
     this._mark = mark;
   }
 
+  selectGfxSub(key) {
+    if (!this._gfxSub) return;
+    if (!this._gfxSub[key]) key = 'display';
+    try { localStorage.setItem('ns-gfx-sub', key); } catch (e) {}
+    for (const k in this._gfxSub) this._gfxSub[k].style.display = (k === key) ? 'block' : 'none';
+    for (const k in this._gfxSubBtns) this._gfxSubBtns[k].classList.toggle('active', k === key);
+  }
+
   selectTab(key) {
     if (!this._panes) return;
+    if (!this._panes[key]) key = 'general';
+    try { localStorage.setItem('ns-set-tab', key); } catch (e) {}   // keep tab across open/close
     for (const k in this._panes) this._panes[k].style.display = (k === key) ? 'block' : 'none';
     for (const k in this._tabBtns) this._tabBtns[k].classList.toggle('active', k === key);
   }

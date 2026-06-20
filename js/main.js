@@ -27,6 +27,7 @@ import { CarAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { Ghost } from './ghost.js';
 import { RaceLine } from './raceline.js';
+import { SCREEN_POS, IS_VIEW, TripleLink, screenQuad, applyOffAxis, loadGeo, saveGeo, singleHFov, openTriple, DEFAULT_GEO } from './triple.js';
 
 const TRACK_DATA = { nordschleife: T_NORD, spa: T_SPA, practice: T_PRAC, kart: T_KART };
 const _savedTrack = localStorage.getItem('ns-track');
@@ -40,7 +41,13 @@ setDem(trackId === 'nordschleife' ? DEM : null);   // real DEM only for the 'Rin
 const track = new Track(TRACK);
 
 const TOUCH = isTouchDevice();
-const gfx = loadGfxCfg();
+// side view windows force a light profile (3 WebGL contexts on one machine):
+// no post / shadows, minimal trees. The center (main) window keeps the user's gfx.
+const gfx = IS_VIEW
+  ? Object.assign(loadGfxCfg(), { pr: 1.0, msaa: 0, shadow: 0, soft: 0, bloom: 0, blur: 0, mirror: 0, trees: 0.4, aniso: 2 })
+  : loadGfxCfg();
+let _geo = loadGeo();          // triple-monitor geometry (defined early: settings reads it)
+let _tripleActive = false;     // main window joins the triple (center off-axis) once side windows open
 // auto-downgrade only when the user left graphics on 'auto'; a manual preset /
 // custom choice forces AutoQuality.done (pass 'low') so it never fights the user.
 const autoTier = gfx.preset === 'auto' ? detectPreset() : 'low';
@@ -109,7 +116,7 @@ let camMode = 0;     // 0 cockpit, 1 hood, 2 chase
 carVis.setCameraMode(camMode);
 let paused = false;
 
-input.onKey = code => {
+if (!IS_VIEW) input.onKey = code => {
   const firstStart = !audio.started;
   audio.start();
   if (firstStart) audio.setEngine(CARS[carId]);
@@ -254,6 +261,14 @@ const settings = new SettingsPanel({
     saveGfxCfg(gfx);
     if (LIVE_KEYS.includes(key)) applyGfxLive(gfx); else location.reload();
   },
+  // triple-monitor: geometry tweaks apply live (broadcast each frame), start/stop
+  tripleGeo: () => _geo,
+  tripleHFov: () => singleHFov(_geo),
+  setTripleGeo: (k, v) => { _geo = { ..._geo, [k]: v }; saveGeo(_geo); },
+  tripleActive: () => _tripleActive,
+  tripleStart: () => { _tripleActive = true; openTriple(); },
+  tripleStop: () => { _tripleActive = false; },
+  resetTripleGeo: () => { _geo = { ...DEFAULT_GEO }; saveGeo(_geo); },
   toggle: name => {
     if (name === 'tc') vehicle.tc = !vehicle.tc;
     else if (name === 'abs') vehicle.abs = !vehicle.abs;
@@ -416,6 +431,40 @@ function updateCamera(dtVis) {
   camera.updateProjectionMatrix();
 }
 
+// ---- triple-monitor link (multi-window sync)
+const link = new TripleLink();
+let _rx = null;
+if (IS_VIEW) link.onState(s => { _rx = s; });
+
+// view window: apply the broadcast state to the (physics-less) vehicle, then
+// render with this eye's yaw offset. No physics / input / audio / hud here.
+function viewFrame(dtVis) {
+  if (_rx) {
+    vehicle.pos.fromArray(_rx.p); vehicle.quat.fromArray(_rx.q);
+    vehicle.ctrl.steer = _rx.st; vehicle.rpm = _rx.rpm; vehicle.gear = _rx.g; vehicle.speed = _rx.sp;
+    if (_rx.w) for (let i = 0; i < 4; i++) { const w = vehicle.wheels[i], r = _rx.w[i]; if (r) { w.spinAngle = r.s; w.steer = r.t; w.comp = r.c; } }
+    if (_rx.pr !== atmo.idx) { atmo.apply(_rx.pr); applyNight(); }
+    if (_rx.cam !== camMode) { camMode = _rx.cam; carVis.setCameraMode(camMode); }
+    if (_rx.geo) _geo = _rx.geo;                  // live triple-geometry updates from main
+  }
+  carVis.update(vehicle, dtVis);
+  updateCamera(dtVis);                          // eye pose (position + car/head orientation)
+  applyOffAxis(camera, camera.position, camera.quaternion, screenQuad(SCREEN_POS, _geo), 0.06, 24000);
+  atmo.follow(vehicle.pos);
+  rain.update(dtVis, camera, vehicle.vel);
+  post.render();
+}
+
+// state the main window broadcasts each frame (small, 60 Hz)
+function broadcastState() {
+  link.send({
+    p: vehicle.pos.toArray(), q: vehicle.quat.toArray(),
+    st: vehicle.ctrl.steer, rpm: vehicle.rpm, g: vehicle.gear, sp: vehicle.speed,
+    w: vehicle.wheels.map(w => ({ s: w.spinAngle, t: w.steer, c: w.comp })),
+    pr: atmo.idx, cam: camMode, geo: _geo,
+  });
+}
+
 // ---- main loop
 let last = performance.now();
 let acc = 0;
@@ -429,6 +478,8 @@ function loop(now) {
   let dtReal = (now - last) / 1000;
   last = now;
   if (dtReal > 0.1) dtReal = 0.1;
+
+  if (IS_VIEW) { viewFrame(dtReal); return; }
 
   if (!paused) {
     input.update(dtReal, vehicle);
@@ -451,6 +502,7 @@ function loop(now) {
 
   carVis.update(vehicle, dtReal);
   updateCamera(dtReal);
+  if (_tripleActive) applyOffAxis(camera, camera.position, camera.quaternion, screenQuad('C', _geo), 0.06, 24000);
   atmo.follow(vehicle.pos);
   rain.update(dtReal, camera, vehicle.vel);
   if (lampsActive) updateLamps();
@@ -464,6 +516,7 @@ function loop(now) {
     carVis.renderMirror(renderer, scene, vehicle);
   }
   post.render();
+  broadcastState();          // feed any open triple-monitor view windows
 }
 
 addEventListener('resize', () => {
@@ -492,8 +545,25 @@ function beginDrive() {
   }
 }
 
-// boot: skip the menu if we just reloaded from a track pick, else show it
-if (sessionStorage.getItem('ns-go')) {
+// boot: view windows render-only; otherwise skip the menu on a track-pick
+// reload, else show it.
+if (IS_VIEW) {
+  paused = false;
+  hud.toggleHelp(false);
+  document.body.classList.add('ns-view');     // chrome hidden via CSS (.ns-view)
+  if (post.setBloom) post.setBloom(false);    // side views stay cheap
+  if (post.setBlur) post.setBlur(false);
+  // fullscreen needs a user gesture in this window → one-tap overlay
+  const fsOv = document.createElement('div');
+  fsOv.style.cssText = 'position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;' +
+    'background:rgba(0,0,0,0.6);color:#ffd24a;font-family:monospace;font-size:18px;letter-spacing:2px;cursor:pointer;text-align:center;';
+  fsOv.innerHTML = '<div>▶ CLICK FOR FULLSCREEN<br><br><span style="color:#8a929c;font-size:13px;">' + SCREEN_POS + ' screen</span></div>';
+  document.body.appendChild(fsOv);
+  fsOv.addEventListener('click', async () => {
+    try { await document.documentElement.requestFullscreen(); } catch (e) {}
+    fsOv.remove();
+  });
+} else if (sessionStorage.getItem('ns-go')) {
   sessionStorage.removeItem('ns-go');
   hud.flash(tMeta.name);
   beginDrive();
@@ -514,6 +584,17 @@ if (sessionStorage.getItem('ns-go')) {
       }
     },
   });
+  // add a "Triple monitor" entry to the menu links (rendered by showMenu)
+  const links = document.getElementById('menu-links');
+  if (links) {
+    const sep = document.createElement('span');
+    sep.style.cssText = 'color:#3e4348;margin:0 9px;'; sep.textContent = '·';
+    const a = document.createElement('a');
+    a.href = '#'; a.textContent = 'Triple monitor ↗';
+    a.style.cssText = 'color:#6a7177;text-decoration:none;';
+    a.addEventListener('click', e => { e.preventDefault(); _tripleActive = true; openTriple(); });
+    links.append(sep, a);
+  }
 }
 
 window.__atmo = atmo;
