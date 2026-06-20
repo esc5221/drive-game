@@ -85,6 +85,9 @@ export class Post {
     if (this.speed) this.speed.enabled = false;
   }
 
+  setBloom(on) { if (this.bloom) this.bloom.enabled = !!on; }
+  setBlur(on) { if (this.speed) this.speed.enabled = !!on; }
+
   render() {
     if (this.enabled) this.composer.render();
     else this.renderer.render(this.scene, this.camera);

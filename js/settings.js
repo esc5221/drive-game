@@ -25,8 +25,10 @@ function btn(label, onClick) {
 }
 
 export class SettingsPanel {
-  // api: { getState, setCar, setCam, setCtrl, setPreset, setTier,
-  //        toggle(name), resetRecords, setPaused, isTouch }
+  // api: { getState, setCar, setCam, setCtrl, setPreset, toggle(name),
+  //        resetRecords, setPaused, isTouch,
+  //        gfxCfg, gfxDefs, gfxPresets, setGfxPreset, setGfxOption,
+  //        audioLayers, audioState, setAudioLayer }
   constructor(api) {
     this.api = api;
     this.open = false;
@@ -60,8 +62,9 @@ export class SettingsPanel {
     const tabBar = document.createElement('div');
     tabBar.className = 'set-tabs';
     const gen = document.createElement('div');
+    const gfxPane = document.createElement('div');
     const snd = document.createElement('div');
-    this._panes = { general: gen, sound: snd };
+    this._panes = { general: gen, graphics: gfxPane, sound: snd };
     this._tabBtns = {};
     const mkTab = (key, label) => {
       const b = document.createElement('button');
@@ -72,9 +75,11 @@ export class SettingsPanel {
       tabBar.appendChild(b);
     };
     mkTab('general', 'General');
+    mkTab('graphics', 'Graphics');
     mkTab('sound', 'Sound');
     card.appendChild(tabBar);
     card.appendChild(gen);
+    card.appendChild(gfxPane);
     card.appendChild(snd);
 
     // ---- General tab ----
@@ -119,19 +124,30 @@ export class SettingsPanel {
       ['Night · Lit', () => this.api.setPreset(5)],
     ])));
 
-    gen.appendChild(ROW('Graphics (restart to apply)', group('tier', [
-      ['Auto', () => this.api.setTier(null)],
-      ['Ultra', () => this.api.setTier('ultra')],
-      ['High', () => this.api.setTier('high')],
-      ['Low', () => this.api.setTier('low')],
-    ])));
-
     const danger = btn('Clear best lap / ghost', () => {
       this.api.resetRecords();
       this.refresh();
     });
     danger.classList.add('danger');
     gen.appendChild(ROW('Records', [danger]));
+
+    // ---- Graphics tab: preset picker on top, individual options below ----
+    if (this.api.gfxCfg) {
+      const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+      this._gfxPresetBtns = this.api.gfxPresets().map(name =>
+        btn(cap(name), () => this.api.setGfxPreset(name)));   // reloads to re-apply
+      gfxPane.appendChild(ROW('Preset', this._gfxPresetBtns));
+
+      this._gfxOptBtns = {};                                  // key -> [{val, b}]
+      for (const d of this.api.gfxDefs()) {
+        this._gfxOptBtns[d.key] = d.opts.map(([label, val]) => ({
+          val, b: btn(label, () => { this.api.setGfxOption(d.key, val); this.refresh(); }),
+        }));
+        gfxPane.appendChild(ROW(d.label, this._gfxOptBtns[d.key].map(o => o.b)));
+      }
+    } else {
+      this._tabBtns.graphics.style.display = 'none';
+    }
 
     // ---- Sound tab: one toggle per layer, grouped (mute any single sound live) ----
     if (this.api.audioLayers) {
@@ -187,8 +203,13 @@ export class SettingsPanel {
     this._mark('line', s.line);
     this.btns.ghost[0].classList.toggle('active', s.ghost);
     this._mark('preset', s.preset);
-    const tierIdx = { ultra: 1, high: 2, low: 3 }[localStorage.getItem('ns-tier')] || 0;
-    this._mark('tier', tierIdx);
+    if (this._gfxPresetBtns) {
+      const cfg = this.api.gfxCfg();
+      const presets = this.api.gfxPresets();
+      this._gfxPresetBtns.forEach((b, i) => b.classList.toggle('active', presets[i] === cfg.preset));
+      for (const k in this._gfxOptBtns)
+        for (const o of this._gfxOptBtns[k]) o.b.classList.toggle('active', cfg[k] === o.val);
+    }
     if (this._audioBtns) {
       const ast = this.api.audioState();
       for (const k in this._audioBtns) this._audioBtns[k].classList.toggle('active', !!(ast[k] && ast[k].on));

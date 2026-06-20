@@ -17,7 +17,8 @@ import { Post } from './post.js';
 import { CarVisual } from './car.js';
 import { Input } from './input.js';
 import { TouchInput, isTouchDevice, showStartOverlay } from './touch.js';
-import { TIERS, detectTier, AutoQuality } from './quality.js';
+import { AutoQuality } from './quality.js';
+import { loadGfxCfg, saveGfxCfg, applyPreset, setOption, detectPreset, GFX_DEFS, PRESET_ORDER, LIVE_KEYS } from './gfx-config.js';
 import { CARS, savedCarId } from './cars.js';
 import { SettingsPanel } from './settings.js';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
@@ -39,30 +40,32 @@ setDem(trackId === 'nordschleife' ? DEM : null);   // real DEM only for the 'Rin
 const track = new Track(TRACK);
 
 const TOUCH = isTouchDevice();
-const tierName = detectTier();
-const TIER = TIERS[tierName];
+const gfx = loadGfxCfg();
+// auto-downgrade only when the user left graphics on 'auto'; a manual preset /
+// custom choice forces AutoQuality.done (pass 'low') so it never fights the user.
+const autoTier = gfx.preset === 'auto' ? detectPreset() : 'low';
 
 const renderer = new THREE.WebGLRenderer({
-  antialias: TIER.msaa === 0,          // composer tiers get MSAA via render target
+  antialias: gfx.msaa === 0,          // composer tiers get MSAA via render target
   powerPreference: 'high-performance',
 });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, TIER.pr));
-renderer.shadowMap.enabled = TIER.shadow > 0;
-renderer.shadowMap.type = TIER.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+renderer.setPixelRatio(Math.min(devicePixelRatio, gfx.pr));
+renderer.shadowMap.enabled = gfx.shadow > 0;
+renderer.shadowMap.type = gfx.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const atmo = new Atmosphere(scene, renderer, { shadow: TIER.shadow, farScale: TIER.farScale });
-const world = buildWorld(scene, track, { trees: TIER.trees, aniso: TIER.aniso });
+const atmo = new Atmosphere(scene, renderer, { shadow: gfx.shadow, farScale: gfx.far });
+const world = buildWorld(scene, track, { trees: gfx.trees, aniso: gfx.aniso });
 const roadMat = world.roadMat;
 const streetlights = world.streetlights;
 
 // rain + a small pool of moving street-lamp lights (placed near the car)
-const rain = new Rain(scene, renderer, Math.floor(5200 * (TIER.trees || 1)));
+const rain = new Rain(scene, renderer, Math.floor(5200 * (gfx.trees || 1)));
 const lampLights = [];
-for (let i = 0; i < (TIER.shadow > 0 ? 6 : 4); i++) {
+for (let i = 0; i < (gfx.shadow > 0 ? 6 : 4); i++) {
   const pl = new THREE.PointLight(0xffd9a0, 0, 28, 2);
   scene.add(pl); lampLights.push(pl);
 }
@@ -71,10 +74,23 @@ let lampsActive = false;
 const _roadColor0 = roadMat.color.clone();
 
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.06, 24000);
-const post = new Post(renderer, scene, camera, TIER);
-const autoQ = new AutoQuality(tierName, renderer, post, [
-  { label: 'Mirror OFF', run: () => { TIER.mirror = 0; } },
+const post = new Post(renderer, scene, camera, { bloom: gfx.bloom, blur: gfx.blur, msaa: gfx.msaa });
+let mirrorEvery = gfx.mirror;
+const autoQ = new AutoQuality(autoTier, renderer, post, [
+  { label: 'Mirror OFF', run: () => { mirrorEvery = 0; } },
 ]);
+
+// live graphics apply (LIVE_KEYS only — pr/mirror/bloom/blur/soft); the rest
+// reload via Settings. post.setBloom/setBlur are added to Post (contract).
+function applyGfxLive(cfg) {
+  renderer.setPixelRatio(Math.min(devicePixelRatio, cfg.pr));
+  post.resize(innerWidth, innerHeight);
+  mirrorEvery = cfg.mirror;
+  post.setBloom(!!cfg.bloom);
+  post.setBlur(!!cfg.blur);
+  renderer.shadowMap.type = cfg.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+  renderer.shadowMap.needsUpdate = true;
+}
 
 const SPAWN_S = tMeta.spawn;   // per-track start position
 let carId = savedCarId();
@@ -224,10 +240,17 @@ const settings = new SettingsPanel({
   setCam: i => { camMode = i; carVis.setCameraMode(i); },
   setCtrl: m => { if (TOUCH) input.setMode(m); },
   setPreset: i => { atmo.apply(i); applyNight(); },
-  setTier: name => {
-    if (name) localStorage.setItem('ns-tier', name);
-    else localStorage.removeItem('ns-tier');
-    location.reload();
+  gfxCfg: () => gfx,
+  gfxDefs: () => GFX_DEFS,
+  gfxPresets: () => PRESET_ORDER,
+  setGfxPreset: name => {
+    Object.assign(gfx, applyPreset(name)); gfx.preset = name;
+    saveGfxCfg(gfx); location.reload();          // full re-apply on preset switch
+  },
+  setGfxOption: (key, val) => {
+    Object.assign(gfx, setOption(gfx, key, val));
+    saveGfxCfg(gfx);
+    if (LIVE_KEYS.includes(key)) applyGfxLive(gfx); else location.reload();
   },
   toggle: name => {
     if (name === 'tc') vehicle.tc = !vehicle.tc;
@@ -289,10 +312,10 @@ function updateHaptics(now) {
 }
 
 // recover to track: works upside down, off-track, airborne — always
-function recoverToTrack() {
+function recoverToTrack(reason) {
   vehicle.reset(vehicle.trackS);
   hud.invalidateLap();
-  hud.flash('Reset to track');
+  hud.flash(reason === 'flip' ? 'Flipped — recovering' : 'Reset to track');
 }
 const resetBtn = document.getElementById('reset-btn');
 resetBtn.addEventListener('click', () => {
@@ -301,13 +324,16 @@ resetBtn.addEventListener('click', () => {
   audio.start();
 });
 
-// reverse handling: holding brake at standstill engages reverse
+// reverse handling: holding brake at standstill engages reverse.
+// NOTE: read RAW input, not vehicle.ctrl — pedals are swapped while in reverse
+// (ctrl.throttle = the reverse-accel pedal), so testing ctrl.throttle made the
+// reverse-accel input look like "go forward" and flip-flopped gear -1 <-> 1.
 function autoReverse() {
   if (!vehicle.auto) return;
-  if (vehicle.ctrl.brake > 0.4 && Math.abs(vehicle.speed) < 0.6 && vehicle.gear === 1) {
+  if (input.brake > 0.4 && Math.abs(vehicle.speed) < 0.6 && vehicle.gear === 1) {
     vehicle.gear = -1;
-  } else if (vehicle.gear === -1 && vehicle.ctrl.throttle > 0.3 && vehicle.speed > -0.6) {
-    vehicle.gear = 1;
+  } else if (vehicle.gear === -1 && input.throttle > 0.3 && vehicle.speed > -0.6) {
+    vehicle.gear = 1;   // forward intent (up key) only — never the reverse pedal
   }
 }
 
@@ -332,12 +358,18 @@ const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 let headLean = new THREE.Vector3();
 const chasePos = new THREE.Vector3();
 let chaseInit = false;
+// per-frame scratch (reused, no allocation in updateCamera)
+const _camTmp = {
+  behind: new THREE.Vector3(), look: new THREE.Vector3(),
+  hoodEye: new THREE.Vector3(), gB: new THREE.Vector3(),
+  qInv: new THREE.Quaternion(), lean: new THREE.Vector3(),
+};
 
 function updateCamera(dtVis) {
   const q = vehicle.quat;
   if (camMode === 2) {
     // chase: spring-damped follow
-    const behind = new THREE.Vector3(0, 1.6, 6.2).applyQuaternion(q).add(vehicle.pos);
+    const behind = _camTmp.behind.set(0, 1.6, 6.2).applyQuaternion(q).add(vehicle.pos);
     if (!chaseInit || chasePos.distanceTo(behind) > 40) { chasePos.copy(behind); chaseInit = true; }
     chasePos.lerp(behind, Math.min(1, dtVis * 4.5));
     // keep above visual ground (incl. hillsides)
@@ -347,14 +379,14 @@ function updateCamera(dtVis) {
       if (chasePos.y < gy + 0.7) chasePos.y = gy + 0.7;
     }
     camera.position.copy(chasePos);
-    const look = new THREE.Vector3(0, 0.7, -2).applyQuaternion(q).add(vehicle.pos);
+    const look = _camTmp.look.set(0, 0.7, -2).applyQuaternion(q).add(vehicle.pos);
     camera.lookAt(look);
     camera.fov = 68;
   } else {
-    const eyeLocal = camMode === 0 ? carVis.eyeLocal : new THREE.Vector3(0, 0.55, -1.0);
+    const eyeLocal = camMode === 0 ? carVis.eyeLocal : _camTmp.hoodEye.set(0, 0.55, -1.0);
     // g-force head motion (body frame)
-    const gB = vehicle.gForce.clone().applyQuaternion(q.clone().invert());
-    const targetLean = new THREE.Vector3(
+    const gB = _camTmp.gB.copy(vehicle.gForce).applyQuaternion(_camTmp.qInv.copy(q).invert());
+    const targetLean = _camTmp.lean.set(
       THREE.MathUtils.clamp(-gB.x * 0.0035, -0.05, 0.05),
       THREE.MathUtils.clamp(-Math.abs(gB.x) * 0.0006, -0.02, 0.005),
       THREE.MathUtils.clamp(gB.z * 0.0030, -0.06, 0.045));
@@ -386,6 +418,9 @@ function updateCamera(dtVis) {
 let last = performance.now();
 let acc = 0;
 let frame = 0;
+// cap physics catch-up substeps: 240 Hz is kept, but a low-FPS frame can't
+// trigger an unbounded step spiral (CPU runaway) on weak devices.
+const MAX_SUBSTEPS = TOUCH ? 12 : 20;
 
 function loop(now) {
   requestAnimationFrame(loop);
@@ -399,11 +434,12 @@ function loop(now) {
     applyControls();
     acc += dtReal;
     let steps = 0;
-    while (acc >= DT && steps < 30) {
+    while (acc >= DT && steps < MAX_SUBSTEPS) {
       vehicle.step(DT);
       acc -= DT;
       steps++;
     }
+    if (vehicle.rollover) recoverToTrack('flip');   // stuck on side/roof -> respawn
     hud.update(vehicle, dtReal);
     ghost.update(dtReal, vehicle, hud.lapStart !== null ? hud.now() - hud.lapStart : null);
     raceLine.update(vehicle.trackS, Math.abs(vehicle.speed));
@@ -422,7 +458,7 @@ function loop(now) {
   hud.fps = hud.fps === undefined ? 60 : hud.fps * 0.95 + (1 / Math.max(dtReal, 1e-3)) * 0.05;
 
   frame++;
-  if (camMode === 0 && TIER.mirror > 0 && frame % TIER.mirror === 0) {
+  if (camMode === 0 && mirrorEvery > 0 && frame % mirrorEvery === 0) {
     carVis.renderMirror(renderer, scene, vehicle);
   }
   post.render();
