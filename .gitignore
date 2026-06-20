@@ -7,3 +7,6 @@ android/.gradle/
 android/app/build/
 android/build/
 android/local.properties
+
+# unlicensed sample audio (prototype) — replace with CC0 before committing
+public/samples/
