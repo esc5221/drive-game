@@ -28,6 +28,7 @@ import { Hud } from './hud.js';
 import { Ghost } from './ghost.js';
 import { RaceLine } from './raceline.js';
 import { SCREEN_POS, IS_VIEW, TripleLink, screenQuad, applyOffAxis, loadGeo, saveGeo, singleHFov, openTriple, DEFAULT_GEO } from './triple.js';
+import { BENCH, autoDrive, initGpuTimer, gpuBegin, gpuEnd, benchFrame, benchReset } from './bench.js';
 
 const TRACK_DATA = { nordschleife: T_NORD, spa: T_SPA, practice: T_PRAC, kart: T_KART };
 const _savedTrack = localStorage.getItem('ns-track');
@@ -48,6 +49,7 @@ const gfx = IS_VIEW
   : loadGfxCfg();
 let _geo = loadGeo();          // triple-monitor geometry (defined early: settings reads it)
 let _tripleActive = false;     // main window joins the triple (center off-axis) once side windows open
+if (BENCH) initGpuTimer(renderer);   // WebGL2 GPU timer for the benchmark
 // auto-downgrade only when the user left graphics on 'auto'; a manual preset /
 // custom choice forces AutoQuality.done (pass 'low') so it never fights the user.
 const autoTier = gfx.preset === 'auto' ? detectPreset() : 'low';
@@ -482,9 +484,8 @@ function loop(now) {
   if (IS_VIEW) { viewFrame(dtReal); return; }
 
   if (!paused) {
-    input.update(dtReal, vehicle);
-    autoReverse();
-    applyControls();
+    if (BENCH) autoDrive(vehicle, track, raceLine);   // deterministic load for measurement
+    else { input.update(dtReal, vehicle); autoReverse(); applyControls(); }
     acc += dtReal;
     let steps = 0;
     while (acc >= DT && steps < MAX_SUBSTEPS) {
@@ -515,7 +516,9 @@ function loop(now) {
   if (camMode === 0 && mirrorEvery > 0 && frame % mirrorEvery === 0) {
     carVis.renderMirror(renderer, scene, vehicle);
   }
+  const _gq = BENCH ? gpuBegin() : null;
   post.render();
+  if (BENCH) { gpuEnd(_gq); benchFrame(dtReal); }
   broadcastState();          // feed any open triple-monitor view windows
 }
 
@@ -563,6 +566,10 @@ if (IS_VIEW) {
     try { await document.documentElement.requestFullscreen(); } catch (e) {}
     fsOv.remove();
   });
+} else if (BENCH) {
+  hud.toggleHelp(false);
+  beginDrive();
+  hud.flash('Benchmark running…');
 } else if (sessionStorage.getItem('ns-go')) {
   sessionStorage.removeItem('ns-go');
   hud.flash(tMeta.name);
@@ -608,3 +615,4 @@ window.__demHeight = demHeight;
 window.__CARS = CARS;
 window.__Vehicle = vehicle.constructor;
 window.__CarAudio = audio.constructor;   // debug / test handle (isolated audio)
+if (BENCH) window.__benchReset = benchReset;   // CDP runner clears the warmup window
