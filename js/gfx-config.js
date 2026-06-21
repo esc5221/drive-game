@@ -10,11 +10,14 @@
 // LIVE_KEYS apply instantly without a reload; everything else needs a reload
 // (composer/world/fog rebuilds) — Settings calls location.reload() for those.
 
+// Tuned from on-device benchmark (Galaxy Note 10): pr & msaa dominate GPU cost,
+// shadow is mid, and trees/far/aniso/soft are ~free → keep those on. Mobile
+// presets kill pr/msaa for fps; shadow/bloom are reserved for high/ultra.
 export const GFX_PRESETS = {
   ultra:  { pr: 2.0, msaa: 4, shadow: 2048, soft: 1, bloom: 1, blur: 1, mirror: 2, trees: 1.0, far: 1.0,  aniso: 8 },
-  high:   { pr: 2.0, msaa: 4, shadow: 1024, soft: 0, bloom: 1, blur: 1, mirror: 3, trees: 0.7, far: 0.85, aniso: 4 },
-  medium: { pr: 1.5, msaa: 2, shadow: 512,  soft: 0, bloom: 1, blur: 0, mirror: 6, trees: 0.7, far: 0.85, aniso: 4 },
-  low:    { pr: 1.0, msaa: 0, shadow: 0,    soft: 0, bloom: 0, blur: 0, mirror: 0, trees: 0.4, far: 0.6,  aniso: 2 },
+  high:   { pr: 1.5, msaa: 2, shadow: 512,  soft: 1, bloom: 1, blur: 0, mirror: 3, trees: 1.0, far: 1.0,  aniso: 8 },
+  medium: { pr: 1.0, msaa: 0, shadow: 0,    soft: 0, bloom: 0, blur: 0, mirror: 8, trees: 0.7, far: 0.85, aniso: 4 },
+  low:    { pr: 1.0, msaa: 0, shadow: 0,    soft: 0, bloom: 0, blur: 0, mirror: 0, trees: 0.5, far: 0.7,  aniso: 2 },
 };
 
 export const PRESET_ORDER = ['auto', 'low', 'medium', 'high', 'ultra'];
@@ -47,9 +50,9 @@ export function detectPreset() {
   if (!mobile) return 'ultra';
   const mem = navigator.deviceMemory || 4;
   const cores = navigator.hardwareConcurrency || 4;
-  const dpr = window.devicePixelRatio || 1;
-  if (mem >= 8 && cores >= 8 && dpr <= 2.1) return 'high';
-  if (mem >= 4 && cores >= 6) return 'medium';
+  // benchmark: even a 2019 flagship chokes on pr2/msaa4 (high/ultra ~12fps).
+  // mobile tops out at medium by default; users can pick high manually.
+  if (mem >= 6 && cores >= 6) return 'medium';
   return 'low';
 }
 
