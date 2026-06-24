@@ -615,4 +615,5 @@ window.__demHeight = demHeight;
 window.__CARS = CARS;
 window.__Vehicle = vehicle.constructor;
 window.__CarAudio = audio.constructor;   // debug / test handle (isolated audio)
+window.__raceLine = raceLine;            // ideal-lap harness reads offsets/vAllowed
 if (BENCH) window.__benchReset = benchReset;   // CDP runner clears the warmup window
