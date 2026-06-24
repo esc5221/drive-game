@@ -90,6 +90,7 @@ const COL_BASE = [0.16, 0.17, 0.20];
 const COL_GREEN = [0.05, 0.92, 0.30];
 const COL_YELLOW = [1.00, 0.78, 0.05];
 const COL_RED = [1.00, 0.06, 0.03];
+const COL_ORANGE = [1.00, 0.42, 0.0];     // ideal-guide: trail-braking
 
 // ribbon cross-section (total 0.80 m): a bright opaque core + feathered edges
 const W_CORE = 0.27;     // core half-width  (alpha = 1)
@@ -140,6 +141,7 @@ export class RaceLine {
     // ---- ribbon geometry: 4 vertices per point (edgeL, coreL, coreR, edgeR) -
     // colour buffer is RGBA (itemSize 4) so per-vertex alpha feathers the edges.
     const pos = new Float32Array(n * 4 * 3);
+    this.posBuf = pos;
     this.colors = new Float32Array(n * 4 * 4);
     const idx = [];
     const e = new THREE.Vector3();
@@ -157,7 +159,8 @@ export class RaceLine {
       idx.push(a + 2, a + 3, b + 2, a + 3, b + 3, b + 2); // coreR..edgeR
     }
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.posAttr = new THREE.BufferAttribute(pos, 3);
+    geo.setAttribute('position', this.posAttr);
     this.colorAttr = new THREE.BufferAttribute(this.colors, 4);
     geo.setAttribute('color', this.colorAttr);
     geo.setIndex(idx);
@@ -184,9 +187,58 @@ export class RaceLine {
 
   setMode(m) { this.mode = m; this._applyMode(); }
   cycleMode() {
-    this.setMode((this.mode + 2) % 3);     // 2(full) -> 1(brake) -> 0(off)
-    return ['Off', 'Brake guide', 'Full line'][this.mode];
+    const modes = this.hasIdeal ? 4 : 3;   // +Ideal guide when an ideal lap is loaded
+    this.setMode((this.mode + 1) % modes); // Off -> Brake -> Full -> (Ideal) -> Off
+    return ['Off', 'Brake guide', 'Full line', 'Ideal guide'][this.mode];
   }
+
+  // load an ideal-lap action profile (from ideal-practice.js): per track point,
+  // the action(1 throttle/2 brake/3 trail/4 coast) + target speed. Enables mode 3.
+  setIdeal(pts) {
+    const n = this.track.n, step = this.track.step;
+    const act = new Uint8Array(n), spd = new Float32Array(n), offI = new Float32Array(n);
+    const seen = new Uint8Array(n);
+    const A = { THROTTLE: 1, BRAKE: 2, TRAIL: 3, COAST: 4 };
+    for (const p of pts) {
+      const i = ((Math.round(p.s / step) % n) + n) % n;
+      act[i] = A[p.a] || 4; spd[i] = p.v; offI[i] = p.d ?? this.offsets[i]; seen[i] = 1;
+    }
+    let last = 1, lv = 0, lo = this.offsets[0];   // forward-fill gaps (pts ~3 m apart)
+    for (let i = 0; i < n; i++) {
+      if (seen[i]) { last = act[i]; lv = spd[i]; lo = offI[i]; }
+      else { act[i] = last; spd[i] = lv; offI[i] = lo; }
+    }
+    this.idealAct = act; this.idealSpd = spd; this.idealOff = offI; this.hasIdeal = true;
+    this.offsets = offI;                    // adopt the optimized line everywhere
+    this.idealSK = this._signedKappa(offI); // signed curvature for the autopilot's steer feed-forward
+    this._rebuildRibbon();
+  }
+  // signed curvature of the offset line (same formula the lap optimizer scored against)
+  _signedKappa(off) {
+    const t = this.track, n = t.n;
+    const lx = new Float64Array(n), lz = new Float64Array(n), k = new Float64Array(n);
+    for (let i = 0; i < n; i++) { lx[i] = t.px[i] + t.rx[i] * off[i]; lz[i] = t.pz[i] + t.rz[i] * off[i]; }
+    for (let i = 0; i < n; i++) {
+      const a = (i - 1 + n) % n, b = (i + 1) % n;
+      let ax = lx[i] - lx[a], az = lz[i] - lz[a], bx = lx[b] - lx[i], bz = lz[b] - lz[i];
+      const la = Math.hypot(ax, az) || 1, lb = Math.hypot(bx, bz) || 1; ax /= la; az /= la; bx /= lb; bz /= lb;
+      k[i] = (ax * bz - az * bx) / ((la + lb) / 2);
+    }
+    for (let p = 0; p < 3; p++) { const s = k.slice(); for (let i = 0; i < n; i++) { const a = (i - 1 + n) % n, b = (i + 1) % n; k[i] = (s[a] + 2 * s[i] + s[b]) / 4; } }
+    return k;
+  }
+  // re-lay the ribbon vertices onto the current this.offsets (e.g. after setIdeal
+  // adopts the ghost line). Same cross-section as the constructor build.
+  _rebuildRibbon() {
+    const n = this.track.n, e = new THREE.Vector3();
+    const lat = [-W_EDGE, -W_CORE, W_CORE, W_EDGE], pos = this.posBuf;
+    for (let i = 0; i < n; i++) for (let s = 0; s < 4; s++) {
+      this.track.edge(i, this.offsets[i] + lat[s], 0.04, e);
+      const o = (i * 4 + s) * 3; pos[o] = e.x; pos[o + 1] = e.y; pos[o + 2] = e.z;
+    }
+    this.posAttr.needsUpdate = true;
+  }
+  clearIdeal() { this.hasIdeal = false; this.idealAct = null; if (this.mode === 3) this.setMode(2); }
 
   // base (inactive / behind-car) colour for one point: dim grey in full mode,
   // invisible in brake-only. Returns [r,g,b,a].
@@ -248,17 +300,21 @@ export class RaceLine {
       const dist = (((i - i0) % n + n) % n) * step;
       let col = COL_BASE, fade = 0.34;            // behind-car trail
       if (dist <= AHD * step) {
-        const va = this.vAllowed[i];
-        if (carSpeed <= va + 0.5) col = COL_GREEN;
-        else {
-          const req = (carSpeed * carSpeed - va * va) / (2 * Math.max(dist, 2));
-          col = req > 5.8 ? COL_RED : req > 2.3 ? COL_YELLOW : COL_GREEN;
+        if (this.mode === 3 && this.idealAct) {   // ideal guide: static action colours
+          const a = this.idealAct[i];
+          col = a === 1 ? COL_GREEN : a === 2 ? COL_RED : a === 3 ? COL_ORANGE : COL_YELLOW;
+          fade = Math.max(1 - 0.55 * (dist / (AHD * step)), 0.55);
+        } else {                                  // dynamic: current speed vs allowed
+          const va = this.vAllowed[i];
+          if (carSpeed <= va + 0.5) col = COL_GREEN;
+          else {
+            const req = (carSpeed * carSpeed - va * va) / (2 * Math.max(dist, 2));
+            col = req > 5.8 ? COL_RED : req > 2.3 ? COL_YELLOW : COL_GREEN;
+          }
+          fade = 1 - 0.55 * (dist / (AHD * step));
+          if (col === COL_RED) fade = Math.max(fade, 0.70);
+          else if (col === COL_YELLOW) fade = Math.max(fade, 0.58);
         }
-        // narrow ribbon fades out far away → keep the far end alive; keep
-        // warnings legible at distance with a fade floor.
-        fade = 1 - 0.55 * (dist / (AHD * step));
-        if (col === COL_RED) fade = Math.max(fade, 0.70);
-        else if (col === COL_YELLOW) fade = Math.max(fade, 0.58);
       }
       if (brakeOnly) {
         const warn = col === COL_RED || col === COL_YELLOW;

@@ -101,6 +101,22 @@
   body.ns-view #touch-ui, body.ns-view #t-actions, body.ns-view #menu, body.ns-view #settings {
     display: none !important; }
 
+  /* ---------- input overlay (streaming-style key/pedal display) ---------- */
+  #input-ov { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    z-index: 25; display: none; pointer-events: none; }
+  #input-ov.show { display: block; }
+  body.ns-view #input-ov { display: none !important; }
+  .iov-row { display: flex; justify-content: center; gap: 6px; margin: 6px 0; }
+  .iov-key { position: relative; width: 46px; height: 46px; border: 1.5px solid rgba(255,255,255,0.28);
+    border-radius: 9px; background: rgba(12,18,26,0.5); overflow: hidden;
+    display: flex; align-items: center; justify-content: center; }
+  .iov-key span { position: relative; z-index: 1; color: #cfd4dc; font-size: 18px; }
+  .iov-key b { position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+    background: rgba(120,200,255,0.5); transition: height 0.04s linear; }
+  .iov-key.on { border-color: rgba(255,255,255,0.7); }
+  #iov-up b   { background: rgba(90,230,130,0.6); }   /* throttle */
+  #iov-down b { background: rgba(255,90,80,0.6); }    /* brake */
+
   /* ---------- settings panel ---------- */
   .set-subtabs { margin-top: -4px; margin-bottom: 10px; opacity: 0.92; }
   .set-subtabs .set-tab { font-size: 12px; padding-bottom: 4px; }
@@ -241,6 +257,17 @@
     <tr><td class="k">L</td><td>Racing line (green=throttle / red=brake)</td><td class="k"></td><td></td></tr>
     <tr><td class="k">P</td><td>Pause</td><td class="k">H</td><td>This help</td></tr>
   </table>
+</div>
+
+<div id="input-ov">
+  <div class="iov-keys">
+    <div class="iov-row"><div class="iov-key" id="iov-up"><b></b><span>▲</span></div></div>
+    <div class="iov-row">
+      <div class="iov-key" id="iov-left"><b></b><span>◀</span></div>
+      <div class="iov-key" id="iov-down"><b></b><span>▼</span></div>
+      <div class="iov-key" id="iov-right"><b></b><span>▶</span></div>
+    </div>
+  </div>
 </div>
 
 <script type="module" src="js/main.js"></script>

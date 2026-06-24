@@ -27,6 +27,7 @@ import { CarAudio } from './audio.js';
 import { Hud } from './hud.js';
 import { Ghost } from './ghost.js';
 import { RaceLine } from './raceline.js';
+import { IDEAL_PRACTICE } from './ideal-practice.js';
 import { SCREEN_POS, IS_VIEW, TripleLink, screenQuad, applyOffAxis, loadGeo, saveGeo, singleHFov, openTriple, DEFAULT_GEO } from './triple.js';
 import { BENCH, autoDrive, initGpuTimer, gpuBegin, gpuEnd, benchFrame, benchReset } from './bench.js';
 
@@ -113,6 +114,12 @@ const hud = new Hud(track, trackId);
 const ghost = new Ghost(scene, track, trackId);
 hud.ghost = ghost;
 const raceLine = new RaceLine(scene, track);
+// ideal-lap guide is available only for the solved combo (practice + GT3 RS)
+function refreshIdeal(cid) {
+  if (trackId === 'practice' && cid === 'gt3rs') raceLine.setIdeal(IDEAL_PRACTICE.pts);
+  else raceLine.clearIdeal();
+}
+refreshIdeal(carId);
 
 let camMode = 0;     // 0 cockpit, 1 hood, 2 chase
 carVis.setCameraMode(camMode);
@@ -170,10 +177,14 @@ if (!IS_VIEW) input.onKey = code => {
     case 'KeyL':
       hud.flash('Racing line: ' + raceLine.cycleMode());
       break;
+    case 'KeyV':
+      setWatch(!watch);
+      break;
     case 'KeyP': case 'Escape':
       settings.toggle();
       break;
   }
+  if (watch && ['KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) setWatch(false);
   if (['ArrowUp', 'KeyW'].includes(code)) hud.toggleHelp(false);
 };
 
@@ -232,6 +243,7 @@ function setCar(id) {
   audio.setEngine(CARS[id]);
   lastGear = 1;
   window.__vehicle = vehicle;
+  refreshIdeal(id);
   hud.invalidateLap();
   hud.flash(CARS[id].name);
 }
@@ -243,9 +255,11 @@ const settings = new SettingsPanel({
     car: carId, cam: camMode, ctrl: TOUCH ? input.mode : 'buttons',
     tc: vehicle.tc, abs: vehicle.abs, auto: vehicle.auto,
     line: raceLine.mode, ghost: ghost.enabled, preset: atmo.idx,
-    arrows: input.arrowsMode,
+    arrows: input.arrowsMode, watch, hasIdeal: raceLine.hasIdeal, inputOv,
   }),
   setCar,
+  setWatch: v => setWatch(v),
+  setInputOv: v => setInputOv(v),
   setLineMode: m => { raceLine.setMode(m); },
   setCam: i => { camMode = i; carVis.setCameraMode(i); },
   setCtrl: m => { if (TOUCH) input.setMode(m); },
@@ -369,6 +383,103 @@ function applyControls() {
   vehicle.ctrl.handbrake = input.handbrake;
 }
 
+// ---- autopilot (Watch mode): the grip-ellipse slip controller (same as the
+// ideal-lap solver) drives the racing line in real time. Lap is not recorded.
+let watch = false, _tcBak = true, _absBak = true, apLaunched = false;
+const _apFwd = new THREE.Vector3(), _apRgt = new THREE.Vector3();
+const AP_L = 2.65;                                   // GT3 RS wheelbase
+// Reproduces the CMA-optimized minimum-time lap (raceLine.offsets = optimized line,
+// raceLine.idealSpd = optimized speed plan, raceLine.idealSK = line's signed curvature).
+// Same controller the optimizer scored against: pure-pursuit + curvature feed-forward
+// + body-slip damping for steering; speed-error tracking for the pedals (TC/ABS on).
+function autopilot(v) {
+  const off = raceLine.offsets, vp = raceLine.idealSpd, sk = raceLine.idealSK;
+  if (!off || !vp || !sk) return;
+  const n = track.n, step = track.step;
+  const q = track.query(v.pos.x, v.pos.z, {});
+  if (!q) return;
+  const i = ((Math.floor(q.s / step) % n) + n) % n, spd = v.speedKmh;
+  // ---- steering: pure-pursuit + curvature feed-forward + body-slip damping -----
+  const la = THREE.MathUtils.clamp(5 + spd * 0.22, 4, 22);
+  const j = (i + Math.max(1, Math.floor(la / step))) % n;
+  _apFwd.set(0, 0, -1).applyQuaternion(v.quat);
+  _apRgt.set(1, 0, 0).applyQuaternion(v.quat);
+  const tx = track.px[j] + track.rx[j] * off[j], tz = track.pz[j] + track.rz[j] * off[j];
+  const dx = tx - v.pos.x, dz = tz - v.pos.z, dl = Math.hypot(dx, dz) || 1;
+  const sinA = THREE.MathUtils.clamp(_apFwd.x * (dz / dl) - _apFwd.z * (dx / dl), -1, 1);
+  const vLat = v.vel.x * _apRgt.x + v.vel.z * _apRgt.z;
+  const bsl = Math.atan2(vLat, Math.max(8, Math.abs(v.speed)));
+  const ms = Math.max(0.08, v.maxSteerAngle());
+  let steerT = THREE.MathUtils.clamp(sinA * 4.0 + 0.3 * Math.atan(AP_L * sk[j]) / ms - 0.5 * bsl, -1, 1);
+  // launch off the line dead-straight (no steering) until rolling: a stationary car that
+  // both floors it AND turns toward the line burns lateral grip and just spins. The start
+  // is a straight, so going straight lets all grip go longitudinal — a clean full-power launch.
+  if (!apLaunched) { if (spd > 50) apLaunched = true; else if (spd < 35) steerT = 0; }
+  v.ctrl.steer += THREE.MathUtils.clamp(steerT - v.ctrl.steer, -0.14, 0.14);
+  // ---- speed target: optimized plan, with a short lag look-ahead (already braked) ---
+  let vt = vp[i]; const ahead = Math.max(1, Math.floor(Math.abs(v.speed) * 0.10 / step));
+  for (let d = 1; d <= ahead; d++) { const k = (i + d) % n; if (vp[k] < vt) vt = vp[k]; }
+  const err = vt - spd, DE = 0.8;                    // km/h; coast band separates pedals
+  let u;
+  if (err > DE) u = THREE.MathUtils.clamp((err - DE) * 0.14, 0, 1);
+  else if (err < -DE) u = THREE.MathUtils.clamp((err + DE) * 0.12, -1, 0);
+  else u = 0;
+  const cur = v.ctrl.throttle - v.ctrl.brake;
+  const rate = (u > cur ? 16 : 24) / 240;
+  const cmd = cur + THREE.MathUtils.clamp(u - cur, -rate, rate);
+  v.ctrl.throttle = Math.max(0, cmd);
+  v.ctrl.brake = Math.max(0, -cmd);
+  v.ctrl.handbrake = false;
+  // ---- traction control at low speed --------------------------------------------
+  if (cmd > 0 && spd < 60) {
+    const di = v.drivenFront ? 0 : 2, w0 = v.wheels[di], w1 = v.wheels[di + 1];
+    const srR = (w0.contact && w1.contact) ? (w0.slipRatio + w1.slipRatio) / 2 : 0;
+    if (!apLaunched) {
+      // initial launch: full throttle, cap only extreme wheelspin (straight line → it hooks up)
+      v.ctrl.throttle = srR > 0.30 ? Math.max(0, v.ctrl.throttle - 0.10) : 1;
+    } else if (srR > 0.13) {
+      // low-speed corner exits (steering → combined slip): modulate to peak grip, no spin
+      v.ctrl.throttle = Math.max(0, v.ctrl.throttle - 0.15);
+    } else {
+      v.ctrl.throttle = Math.min(1, v.ctrl.throttle + 0.02);
+    }
+    v.ctrl.brake = 0;
+  }
+}
+function setWatch(on) {
+  watch = !!on;
+  if (watch) {
+    _tcBak = vehicle.tc; _absBak = vehicle.abs;
+    vehicle.tc = true; vehicle.abs = true;            // let the car's own TC/ABS smooth the slip edge
+    apLaunched = vehicle.speedKmh > 50;               // straight full-throttle launch only from low speed
+    hud.invalidateLap();
+    hud.flash('Autopilot ON — ideal line (lap not recorded). Press a key to take over');
+  } else {
+    vehicle.tc = _tcBak; vehicle.abs = _absBak;
+    hud.flash('Autopilot OFF — you have control');
+  }
+}
+
+// ---- input overlay (streaming-style): shows throttle/brake/steer from ctrl,
+// so it works for both manual driving and Watch (autopilot).
+const _iov = {
+  el: document.getElementById('input-ov'),
+  up: document.getElementById('iov-up'), down: document.getElementById('iov-down'),
+  left: document.getElementById('iov-left'), right: document.getElementById('iov-right'),
+};
+let inputOv = (() => { try { return localStorage.getItem('ns-inputov') === '1'; } catch (e) { return false; } })();
+function setInputOv(on) { inputOv = !!on; try { localStorage.setItem('ns-inputov', inputOv ? '1' : '0'); } catch (e) {} }
+function updateInputOverlay() {
+  if (!_iov.el) return;
+  const show = inputOv || watch;
+  _iov.el.classList.toggle('show', show);
+  if (!show) return;
+  const c = vehicle.ctrl;
+  const set = (k, v) => { v = Math.min(1, Math.max(0, v)); k.querySelector('b').style.height = (v * 100) + '%'; k.classList.toggle('on', v > 0.05); };
+  set(_iov.up, c.throttle); set(_iov.down, c.brake);
+  set(_iov.left, c.steer < 0 ? -c.steer : 0); set(_iov.right, c.steer > 0 ? c.steer : 0);
+}
+
 // ---- camera rigs
 const headPos = new THREE.Vector3();
 const headOffset = new THREE.Vector3();
@@ -485,6 +596,7 @@ function loop(now) {
 
   if (!paused) {
     if (BENCH) autoDrive(vehicle, track, raceLine);   // deterministic load for measurement
+    else if (watch) autopilot(vehicle);               // Watch mode: autonomous ideal-line drive
     else { input.update(dtReal, vehicle); autoReverse(); applyControls(); }
     acc += dtReal;
     let steps = 0;
@@ -502,6 +614,7 @@ function loop(now) {
   }
 
   carVis.update(vehicle, dtReal);
+  updateInputOverlay();
   updateCamera(dtReal);
   if (_tripleActive) applyOffAxis(camera, camera.position, camera.quaternion, screenQuad('C', _geo), 0.06, 24000);
   atmo.follow(vehicle.pos);
