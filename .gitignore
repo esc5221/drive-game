@@ -10,3 +10,6 @@ android/local.properties
 
 # unlicensed sample audio (prototype) — replace with CC0 before committing
 public/samples/
+
+# optimizer scratch (regenerable)
+tmp/
