@@ -525,6 +525,10 @@ export class CarVisual {
     if (open) this.wheelGroup.scale.setScalar(0.82);
     const rimMat = new THREE.MeshStandardMaterial({ color: 0x22262e, roughness: 0.7 });
     this.wheelSpin = new THREE.Group();
+    // hands ride a SEPARATE spin that's angle-limited: the wheel turns to its
+    // real lock (13:1, no clip) while the grips shuffle within a natural range
+    // so big steering can't twist the arms (the rim slides under the grip).
+    this.handSpin = new THREE.Group();
     const rim = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.021, 12, 36, Math.PI * 1.72), rimMat);
     rim.rotation.z = Math.PI / 2 + (Math.PI * 2 - Math.PI * 1.72) / 2;
     this.wheelSpin.add(rim);
@@ -613,10 +617,10 @@ export class CarVisual {
       const ang = sgn === -1 ? Math.PI - lift : lift;
       h.rotation.z = ang;
       h.position.set(Math.cos(ang) * 0.175, Math.sin(ang) * 0.175, 0.014);
-      this.wheelSpin.add(h);
+      this.handSpin.add(h);
       this.wristAnchors.push(anchor);
     }
-    this.wheelGroup.add(this.wheelSpin);
+    this.wheelGroup.add(this.wheelSpin, this.handSpin);
 
     // ---- arms: 2-bone IK (shoulder fixed to the seat, elbow via pole)
     const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x23272e, roughness: 0.92 });
@@ -847,7 +851,11 @@ export class CarVisual {
     // wheel turns with the ACTUAL steering angle x typical 13:1 column ratio,
     // clamped so the hands never cross over awkwardly
     const realAngle = vehicle.ctrl.steer * vehicle.maxSteerAngle();
-    this.wheelSpin.rotation.z = THREE.MathUtils.clamp(-realAngle * 13, -2.6, 2.6);
+    const wheelRot = -realAngle * 13;                  // true 13:1 column ratio, no clip → real lock (~±417° at full)
+    this.wheelSpin.rotation.z = wheelRot;
+    // hands shuffle: follow the wheel but cap at a natural grip range (~±115°);
+    // past that the rim slides under the grip instead of twisting the arms.
+    this.handSpin.rotation.z = THREE.MathUtils.clamp(wheelRot, -2.0, 2.0);
     this._solveArms();
 
     const a0 = Math.PI * 200 / 180, a1 = -Math.PI * 20 / 180;
