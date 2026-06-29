@@ -32,6 +32,7 @@ export class TouchInput {
     this._tiltRaw = 0;
     this._tiltZero = 0;
     this._lastBeta = 0;
+    this.tiltRoll = 0;          // physical device roll from neutral (rad) — drives horizon leveling
     this._state = { left: false, right: false, gas: false, brake: false, hb: false };
 
     this._buildUI();
@@ -125,7 +126,11 @@ export class TouchInput {
       else if (angle === 270 || angle === -90) raw = -e.beta;
       else raw = e.gamma || 0;                     // portrait fallback
       this._lastBeta = raw;
-      const v = (raw - this._tiltZero) / 22;       // full lock at ~22 deg
+      const delta = raw - this._tiltZero;           // physical roll from the calibrated neutral (deg)
+      // expose the actual roll (rad, clamped) so the camera can counter-roll and keep
+      // the horizon level relative to the player's eyes as they tilt the phone to steer
+      this.tiltRoll = Math.max(-0.6, Math.min(0.6, delta * Math.PI / 180));
+      const v = delta / 22;                         // full lock at ~22 deg
       const dead = 0.06;
       this._tiltRaw = Math.abs(v) < dead ? 0 :
         Math.max(-1, Math.min(1, v - Math.sign(v) * dead));

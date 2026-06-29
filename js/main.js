@@ -122,6 +122,9 @@ function refreshIdeal(cid) {
 refreshIdeal(carId);
 
 let camMode = 0;     // 0 cockpit, 1 hood, 2 chase
+// Horizon-tilt (RR3-style): in tilt-steering mode, roll the camera to keep the horizon
+// level as the car banks/crests. Only takes effect when input.mode === 'tilt' (mobile).
+let horizonTilt = (() => { try { return (localStorage.getItem('ns-horizon') ?? '1') === '1'; } catch (e) { return true; } })();
 carVis.setCameraMode(camMode);
 let paused = false;
 
@@ -256,6 +259,7 @@ const settings = new SettingsPanel({
     tc: vehicle.tc, abs: vehicle.abs, auto: vehicle.auto,
     line: raceLine.mode, ghost: ghost.enabled, preset: atmo.idx,
     arrows: input.arrowsMode, watch, hasIdeal: raceLine.hasIdeal, inputOv,
+    horizon: horizonTilt,
   }),
   setCar,
   setWatch: v => setWatch(v),
@@ -290,6 +294,7 @@ const settings = new SettingsPanel({
     else if (name === 'abs') vehicle.abs = !vehicle.abs;
     else if (name === 'auto') { vehicle.auto = !vehicle.auto; if (vehicle.gear < 1) vehicle.gear = 1; if (TOUCH) input.setManual(!vehicle.auto); }
     else if (name === 'ghost') ghost.enabled = !ghost.enabled;
+    else if (name === 'horizon') { horizonTilt = !horizonTilt; try { localStorage.setItem('ns-horizon', horizonTilt ? '1' : '0'); } catch (e) {} }
   },
   resetRecords: () => {
     localStorage.removeItem('ns-best2');
@@ -494,6 +499,7 @@ const _camTmp = {
   hoodEye: new THREE.Vector3(), gB: new THREE.Vector3(),
   qInv: new THREE.Quaternion(), lean: new THREE.Vector3(),
 };
+const HORIZON_SIGN = -1;         // counter the phone's physical roll so the horizon stays level
 
 function updateCamera(dtVis) {
   const q = vehicle.quat;
@@ -532,11 +538,17 @@ function updateCamera(dtVis) {
     camera.position.y += (Math.random() - 0.5) * vib + vehicle.landImpact * -0.035;
     camera.position.x += (Math.random() - 0.5) * vib * 0.6;
 
-    // look slightly into the corner + small pitch with acceleration
+    // horizon tilt (tilt steering): the player physically rolls the phone to steer,
+    // so the screen rolls with it and the horizon looks tilted. Counter-roll the camera
+    // by the phone's physical tilt so the rendered horizon stays level to the eyes — the
+    // whole view rotates to keep level (RR3 tilt feel), no black corners (camera roll).
+    const roll = (horizonTilt && input.mode === 'tilt' && input.tiltRoll)
+      ? HORIZON_SIGN * input.tiltRoll : 0;
+    // look slightly into the corner + small pitch with acceleration + horizon-level roll
     lookEuler.set(
       THREE.MathUtils.clamp(gB.z * 0.0028, -0.05, 0.05),
       -vehicle.ctrl.steer * 0.10,
-      0);
+      roll);
     camQuatTarget.setFromEuler(lookEuler).premultiply(q);
     camera.quaternion.slerp(camQuatTarget, Math.min(1, dtVis * 14));
     camera.fov = 72 + Math.min(10, vehicle.speedKmh * 0.028);   // subtle speed FOV
@@ -729,4 +741,6 @@ window.__CARS = CARS;
 window.__Vehicle = vehicle.constructor;
 window.__CarAudio = audio.constructor;   // debug / test handle (isolated audio)
 window.__raceLine = raceLine;            // ideal-lap harness reads offsets/vAllowed
+window.__input = input;                  // debug / test handle (control mode)
+window.__camera = camera;                // debug / test handle (camera rig)
 if (BENCH) window.__benchReset = benchReset;   // CDP runner clears the warmup window

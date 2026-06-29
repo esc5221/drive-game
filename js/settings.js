@@ -121,6 +121,7 @@ export class SettingsPanel {
       ...group('ghost', [['Ghost', () => this.api.toggle('ghost')]]),
       ...(this.api.setWatch ? group('watch', [['Autopilot (watch)', () => { this.api.setWatch(!this.api.getState().watch); this.close(); }]]) : []),
       ...(this.api.setInputOv ? group('inputov', [['Input overlay', () => { this.api.setInputOv(!this.api.getState().inputOv); this.refresh(); }]]) : []),
+      ...(this.api.isTouch ? group('horizon', [['Horizon level (tilt)', () => this.api.toggle('horizon')]]) : []),
     ]));
 
     gen.appendChild(ROW('Weather / Time', group('preset', [
@@ -275,6 +276,7 @@ export class SettingsPanel {
     this.btns.ghost[0].classList.toggle('active', s.ghost);
     if (this.btns.watch) this.btns.watch[0].classList.toggle('active', s.watch);
     if (this.btns.inputov) this.btns.inputov[0].classList.toggle('active', s.inputOv);
+    if (this.btns.horizon) this.btns.horizon[0].classList.toggle('active', s.horizon);
     this._mark('preset', s.preset);
     if (this._gfxPresetBtns) {
       const cfg = this.api.gfxCfg();
