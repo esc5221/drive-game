@@ -32,8 +32,13 @@ function drawPreview(cv, points) {
 }
 
 // trackData: { id -> TRACK }, onStart(trackId, carId)
-export function showMenu({ trackData, currentTrack, currentCar, onStart }) {
+// isTouch + currentCtrl/onCtrl: show a Button/Tilt steering chooser (mobile only).
+export function showMenu({ trackData, currentTrack, currentCar, onStart, isTouch, currentCtrl, onCtrl }) {
   let selTrack = currentTrack, selCar = currentCar;
+
+  const steerSec = isTouch ? `
+      <div class="menu-sec">STEERING</div>
+      <div id="menu-ctrl"></div>` : '';
 
   const ov = document.createElement('div');
   ov.id = 'menu';
@@ -44,6 +49,7 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart }) {
       <div id="menu-tracks"></div>
       <div class="menu-sec">CAR</div>
       <div id="menu-cars"></div>
+      ${steerSec}
       <button id="menu-start">DRIVE</button>
       <div id="menu-links"
          style="margin-top:16px;text-align:center;font-family:'Space Mono',monospace;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;">
@@ -67,8 +73,10 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart }) {
     const card = document.createElement('div');
     card.className = 'menu-card' + (t.id === selTrack ? ' active' : '');
     card.innerHTML = `<canvas width="150" height="110"></canvas>
-      <div class="mc-name">${t.name}</div>
-      <div class="mc-meta">${t.loc} · ${fmt(t.km)} km</div>`;
+      <div class="mc-text">
+        <div class="mc-name">${t.name}</div>
+        <div class="mc-meta">${t.loc} · ${fmt(t.km)} km</div>
+      </div>`;
     const cv = card.querySelector('canvas');
     if (trackData[t.id]) drawPreview(cv, trackData[t.id].points);
     card.addEventListener('click', () => {
@@ -90,6 +98,21 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart }) {
       b.classList.add('active');
     });
     carWrap.appendChild(b);
+  }
+
+  if (isTouch) {
+    const ctrlWrap = ov.querySelector('#menu-ctrl');
+    for (const [m, label] of [['buttons', 'Buttons'], ['tilt', 'Tilt (gyro)']]) {
+      const b = document.createElement('button');
+      b.className = 'menu-carbtn' + (m === (currentCtrl || 'buttons') ? ' active' : '');
+      b.textContent = label;
+      b.addEventListener('click', () => {
+        ctrlWrap.querySelectorAll('.menu-carbtn').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        if (onCtrl) onCtrl(m);
+      });
+      ctrlWrap.appendChild(b);
+    }
   }
 
   ov.querySelector('#menu-start').addEventListener('click', () => {

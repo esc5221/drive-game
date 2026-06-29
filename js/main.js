@@ -657,19 +657,21 @@ addEventListener('resize', () => {
 applyNight();          // apply initial preset's environment (grip/wet/rain/lamps)
 requestAnimationFrame(loop);
 
-// commit to driving: start audio, (touch) go fullscreen + lock orientation
-function beginDrive() {
+// commit to driving: start audio, (touch) go fullscreen + lock landscape. Must run from
+// a user gesture. Fullscreen is awaited before the orientation lock — locking before the
+// element is fullscreen fails on Android Chrome, which is why portrait→landscape was flaky.
+async function beginDrive() {
   paused = false;
   hud.toggleHelp(false);
-  audio.start();
+  audio.start();                                  // synchronous in the gesture (Web Audio unlock)
   audio.setEngine(CARS[carId]);
   if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
   updateAudioGate();
   if (TOUCH) {
-    try { document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch (e) {}
-    try { screen.orientation.lock('landscape'); } catch (e) {}
+    try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch (e) {}
+    try { await screen.orientation.lock('landscape'); } catch (e) {}
     TouchInput.requestMotionPermission();
-    hud.flash(input.mode === 'tilt' ? 'Tilt steering — tilt the phone like a wheel' : 'Button steering (switch to tilt in settings)');
+    hud.flash(input.mode === 'tilt' ? 'Tilt steering — tilt the phone like a wheel' : 'Button steering');
   }
 }
 
@@ -697,13 +699,18 @@ if (IS_VIEW) {
   hud.flash('Benchmark running…');
 } else if (sessionStorage.getItem('ns-go')) {
   sessionStorage.removeItem('ns-go');
-  hud.flash(tMeta.name);
-  beginDrive();
+  // a track change reloaded the page, so the start tap's gesture is gone — fullscreen +
+  // landscape lock need a fresh one. On touch, a one-tap overlay provides it; desktop drives straight in.
+  if (TOUCH) showStartOverlay(() => { hud.flash(tMeta.name); beginDrive(); });
+  else { hud.flash(tMeta.name); beginDrive(); }
 } else {
   paused = true;                 // freeze behind the menu
   hud.toggleHelp(false);
   showMenu({
     trackData: TRACK_DATA, currentTrack: trackId, currentCar: carId,
+    isTouch: TOUCH,
+    currentCtrl: TOUCH ? input.mode : 'buttons',
+    onCtrl: m => { if (TOUCH) input.setMode(m); },
     onStart: (selTrack, selCar) => {
       if (selTrack !== trackId) {              // different track -> reload into it
         localStorage.setItem('ns-track', selTrack);

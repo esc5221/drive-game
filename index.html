@@ -164,7 +164,7 @@
   .menu-card canvas { width: 150px; height: 110px; display: block; }
   .mc-name { color: #fff; font-size: 14px; font-weight: 700; margin-top: 6px; }
   .mc-meta { color: #93a3b4; font-size: 12px; margin-top: 2px; }
-  #menu-cars { display: flex; gap: 8px; flex-wrap: wrap; }
+  #menu-cars, #menu-ctrl { display: flex; gap: 8px; flex-wrap: wrap; }
   .menu-carbtn { background: rgba(255,255,255,0.06); color: #dfe4ea; border: 1.5px solid rgba(255,255,255,0.16);
     border-radius: 9px; padding: 9px 16px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
   .menu-carbtn.active { border-color: #7ec8ff; background: rgba(64,130,200,0.35); color: #fff; }
@@ -184,6 +184,24 @@
     .mc-meta { font-size: 10px; }
     .menu-carbtn { padding: 7px 12px; font-size: 13px; }
     #menu-start { margin-top: 12px; padding: 11px; font-size: 15px; }
+  }
+  /* narrow phone: track picker becomes a compact list (small thumbnail + name) so the
+     maps don't dominate the screen and CAR / STEERING / DRIVE stay in view. */
+  @media (max-width: 540px) {
+    #menu-inner { width: 100%; padding: 16px 16px;
+      padding-top: max(14px, env(safe-area-inset-top));
+      padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+    #menu h1 { font-size: 22px; letter-spacing: 2px; margin-bottom: 2px; }
+    .menu-sec { margin: 13px 0 6px; }
+    #menu-tracks { flex-direction: column; gap: 7px; }
+    .menu-card { width: 100%; display: flex; align-items: center; gap: 13px;
+      padding: 9px 12px; border-radius: 10px; }
+    .menu-card canvas { width: 74px; height: 54px; flex: none; }
+    .mc-text { min-width: 0; }
+    .mc-name { margin-top: 0; font-size: 15px; }
+    .mc-meta { font-size: 12px; }
+    .menu-carbtn { padding: 11px 15px; font-size: 14px; }
+    #menu-start { margin-top: 16px; padding: 15px; font-size: 16px; }
   }
 
   #tap-start { position: fixed; inset: 0; z-index: 99; background: rgba(4,9,17,0.94);
