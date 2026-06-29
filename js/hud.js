@@ -7,9 +7,10 @@ const fmt = ms => {
 };
 
 export class Hud {
-  constructor(track, trackId) {
+  constructor(track, trackId, startS) {
     this.tid = trackId || 'nordschleife';
     this.track = track;
+    this.startS = startS || 0;     // lap start/finish line (= spawn): a full lap is measured from here
     this.ghost = null;           // wired by main.js
     this.el = {
       delta: document.getElementById('lap-delta'),
@@ -84,14 +85,17 @@ export class Hud {
     const t = this.track;
     const s = vehicle.trackS;
     const T = t.total;
+    // lap progress measured from the start/finish line (spawn), not the raw track origin,
+    // so a far-from-origin spawn (e.g. Nordschleife at s=3550) still records on the first full lap
+    const sLap = ((s - this.startS) % T + T) % T;
 
     if (this.lapStart === null && Math.abs(vehicle.speed) > 0.5) {
       this.lapStart = this.now();   // first movement starts the clock
       if (this.ghost) this.ghost.beginLap();
     }
 
-    // sector boundaries at T/3, 2T/3, T(=0)
-    const sec = Math.floor(s / (T / 3));
+    // sector boundaries at T/3, 2T/3, T(=0), relative to the start/finish line
+    const sec = Math.floor(sLap / (T / 3));
     if (sec !== this.curSector && this.lapStart !== null) {
       const crossedFinish = this.curSector === 2 && sec === 0;
       const elapsed = this.now() - this.lapStart;

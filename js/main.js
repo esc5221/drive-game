@@ -110,7 +110,7 @@ vehicle.reset(SPAWN_S);
 let carVis = new CarVisual(scene, renderer, CARS[carId]);
 const input = TOUCH ? new TouchInput() : new Input();
 const audio = new CarAudio();
-const hud = new Hud(track, trackId);
+const hud = new Hud(track, trackId, SPAWN_S);
 const ghost = new Ghost(scene, track, trackId);
 hud.ghost = ghost;
 const raceLine = new RaceLine(scene, track);
@@ -125,8 +125,22 @@ let camMode = 0;     // 0 cockpit, 1 hood, 2 chase
 // Horizon-tilt (RR3-style): in tilt-steering mode, roll the camera to keep the horizon
 // level as the car banks/crests. Only takes effect when input.mode === 'tilt' (mobile).
 let horizonTilt = (() => { try { return (localStorage.getItem('ns-horizon') ?? '1') === '1'; } catch (e) { return true; } })();
+// restore persisted assist / display prefs (these used to reset every reload)
+try {
+  const ls = k => localStorage.getItem(k);
+  if (ls('ns-tc') != null) vehicle.tc = ls('ns-tc') === '1';
+  if (ls('ns-abs') != null) vehicle.abs = ls('ns-abs') === '1';
+  if (ls('ns-auto') != null) { vehicle.auto = ls('ns-auto') === '1'; if (vehicle.gear < 1) vehicle.gear = 1; }
+  if (ls('ns-ghost-on') != null) ghost.enabled = ls('ns-ghost-on') === '1';
+  if (ls('ns-cam') != null) camMode = +ls('ns-cam') || 0;
+  if (ls('ns-preset') != null) { atmo.apply(+ls('ns-preset') || 0); applyNight(); }
+} catch (e) {}
 carVis.setCameraMode(camMode);
 let paused = false;
+
+// persist user prefs so they survive a reload (assists / ghost / camera / weather)
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+const persistAssists = () => { lsSet('ns-tc', vehicle.tc ? '1' : '0'); lsSet('ns-abs', vehicle.abs ? '1' : '0'); lsSet('ns-auto', vehicle.auto ? '1' : '0'); };
 
 if (!IS_VIEW) input.onKey = code => {
   const firstStart = !audio.started;
@@ -144,6 +158,7 @@ if (!IS_VIEW) input.onKey = code => {
     case 'KeyC':
       camMode = (camMode + 1) % 3;
       carVis.setCameraMode(camMode);
+      lsSet('ns-cam', String(camMode));
       break;
     case 'ShiftLeft': case 'ShiftRight': case 'ArrowUp':
       if (!vehicle.auto || input.arrowsMode === 'shift') vehicle.shiftUp();
@@ -155,14 +170,17 @@ if (!IS_VIEW) input.onKey = code => {
       vehicle.auto = !vehicle.auto;
       if (vehicle.gear < 1) vehicle.gear = 1;
       if (TOUCH) input.setManual(!vehicle.auto);
+      persistAssists();
       hud.flash(vehicle.auto ? 'AUTOMATIC' : 'MANUAL — ↑ upshift / ↓ downshift, W/S pedals');
       break;
     case 'KeyT':
       vehicle.tc = !vehicle.tc;
+      persistAssists();
       hud.flash('Traction Control ' + (vehicle.tc ? 'ON' : 'OFF'));
       break;
     case 'KeyB':
       vehicle.abs = !vehicle.abs;
+      persistAssists();
       hud.flash('ABS ' + (vehicle.abs ? 'ON' : 'OFF'));
       break;
     case 'KeyH':
@@ -171,9 +189,11 @@ if (!IS_VIEW) input.onKey = code => {
     case 'KeyN':
       hud.flash(atmo.cycle());
       applyNight();
+      lsSet('ns-preset', String(atmo.idx));
       break;
     case 'KeyG':
       ghost.enabled = !ghost.enabled;
+      lsSet('ns-ghost-on', ghost.enabled ? '1' : '0');
       hud.flash('Ghost ' + (ghost.enabled ? 'ON' : 'OFF') +
         (ghost.hasBest ? '' : ' (set a best lap first)'));
       break;
@@ -265,10 +285,10 @@ const settings = new SettingsPanel({
   setWatch: v => setWatch(v),
   setInputOv: v => setInputOv(v),
   setLineMode: m => { raceLine.setMode(m); },
-  setCam: i => { camMode = i; carVis.setCameraMode(i); },
+  setCam: i => { camMode = i; carVis.setCameraMode(i); lsSet('ns-cam', String(i)); },
   setCtrl: m => { if (TOUCH) input.setMode(m); },
   setArrows: m => { if (input.setArrows) input.setArrows(m); },
-  setPreset: i => { atmo.apply(i); applyNight(); },
+  setPreset: i => { atmo.apply(i); applyNight(); lsSet('ns-preset', String(i)); },
   gfxCfg: () => gfx,
   gfxDefs: () => GFX_DEFS,
   gfxPresets: () => PRESET_ORDER,
@@ -290,10 +310,10 @@ const settings = new SettingsPanel({
   tripleStop: () => { _tripleActive = false; },
   resetTripleGeo: () => { _geo = { ...DEFAULT_GEO }; saveGeo(_geo); },
   toggle: name => {
-    if (name === 'tc') vehicle.tc = !vehicle.tc;
-    else if (name === 'abs') vehicle.abs = !vehicle.abs;
-    else if (name === 'auto') { vehicle.auto = !vehicle.auto; if (vehicle.gear < 1) vehicle.gear = 1; if (TOUCH) input.setManual(!vehicle.auto); }
-    else if (name === 'ghost') ghost.enabled = !ghost.enabled;
+    if (name === 'tc') { vehicle.tc = !vehicle.tc; persistAssists(); }
+    else if (name === 'abs') { vehicle.abs = !vehicle.abs; persistAssists(); }
+    else if (name === 'auto') { vehicle.auto = !vehicle.auto; if (vehicle.gear < 1) vehicle.gear = 1; if (TOUCH) input.setManual(!vehicle.auto); persistAssists(); }
+    else if (name === 'ghost') { ghost.enabled = !ghost.enabled; lsSet('ns-ghost-on', ghost.enabled ? '1' : '0'); }
     else if (name === 'horizon') { horizonTilt = !horizonTilt; try { localStorage.setItem('ns-horizon', horizonTilt ? '1' : '0'); } catch (e) {} }
   },
   resetRecords: () => {
@@ -749,5 +769,6 @@ window.__Vehicle = vehicle.constructor;
 window.__CarAudio = audio.constructor;   // debug / test handle (isolated audio)
 window.__raceLine = raceLine;            // ideal-lap harness reads offsets/vAllowed
 window.__input = input;                  // debug / test handle (control mode)
+window.__hud = hud;                      // debug / test handle (lap timing)
 window.__camera = camera;                // debug / test handle (camera rig)
 if (BENCH) window.__benchReset = benchReset;   // CDP runner clears the warmup window
