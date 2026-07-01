@@ -69,8 +69,9 @@ export class Hud {
       i === 0 ? og.moveTo(x, y) : og.lineTo(x, y);
     }
     og.closePath(); og.stroke();
-    // start/finish dot
-    const [sx, sy] = this.mapFn(t.px[0], t.pz[0]);
+    // start/finish dot at the actual line (spawn), not the raw track origin
+    const si = ((Math.round(this.startS / t.step) % t.n) + t.n) % t.n;
+    const [sx, sy] = this.mapFn(t.px[si], t.pz[si]);
     og.fillStyle = '#ffd24a';
     og.fillRect(sx - 3, sy - 3, 6, 6);
     this.mapBase = off;

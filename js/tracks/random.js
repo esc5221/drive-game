@@ -3,15 +3,17 @@
 // and the world builds road/kerbs/trees around it — so a random layout needs only a
 // clean, closed, non-self-intersecting centreline plus segment markers.
 //
-// Method (the classic convex-hull racetrack recipe): random points -> convex hull
-// (guaranteed simple polygon) -> perpendicular midpoint displacement (adds corners) ->
-// soften over-sharp turns -> closed Catmull-Rom -> arc-length resample. Seeded, so a
-// given seed always yields the same track (records/sharing work).
+// Method: a star polygon — nodes at monotonically-increasing angles around a centre
+// (so it can never self-cross) with strongly varied radii AND angular gaps. A per-track
+// "bay depth" sets how deep the radius dips get, giving anything from flowing/fast to
+// tight/technical layouts. Then: soften near-180° kinks -> closed Catmull-Rom ->
+// arc-length resample -> reject boring ovals / undrivable spikes. Seeded, so a given
+// seed always yields the same track (records/sharing work).
 
 const STEP = 5.0;
 const Y = 80.0;                       // flat, like the practice track
 const TARGET_LEN = 2900;              // aim ~2.9 km; accepted band [2200, 3800]
-const MIN_RADIUS = 6.5;               // tightest corner (m) — hairpins ok, not brutal
+const MIN_RADIUS = 6.0;               // tightest corner (m) — real hairpins ok (practice ~5.8)
 const MAX_CURV = 1 / MIN_RADIUS;
 
 // ---- seeded PRNG (mulberry32) ---------------------------------------------
@@ -26,48 +28,6 @@ function mulberry32(a) {
 
 // ---- geometry helpers ------------------------------------------------------
 const cross3 = (o, a, b) => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
-
-function convexHull(pts) {
-  const p = pts.slice().sort((a, b) => a.x - b.x || a.z - b.z);
-  if (p.length < 3) return p;
-  const lower = [];
-  for (const q of p) { while (lower.length >= 2 && cross3(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
-  const upper = [];
-  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (upper.length >= 2 && cross3(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
-  lower.pop(); upper.pop();
-  return lower.concat(upper);
-}
-
-// push points apart so no section is cramped (gentle relaxation)
-function pushApart(pts, minD) {
-  const md2 = minD * minD;
-  for (let it = 0; it < 12; it++) {
-    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
-      let dx = pts[j].x - pts[i].x, dz = pts[j].z - pts[i].z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 < md2 && d2 > 1e-6) {
-        const d = Math.sqrt(d2), push = (minD - d) / d * 0.5;
-        dx *= push; dz *= push;
-        pts[i].x -= dx; pts[i].z -= dz; pts[j].x += dx; pts[j].z += dz;
-      }
-    }
-  }
-  return pts;
-}
-
-// insert a perpendicular-displaced midpoint on every edge -> concave corners / variety
-function displace(hull, rng, frac) {
-  const out = [], n = hull.length;
-  for (let i = 0; i < n; i++) {
-    const a = hull[i], b = hull[(i + 1) % n];
-    out.push({ x: a.x, z: a.z });
-    const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
-    const px = -dz / len, pz = dx / len;               // perpendicular
-    const disp = (rng() * 2 - 1) * len * frac;
-    out.push({ x: (a.x + b.x) / 2 + px * disp, z: (a.z + b.z) / 2 + pz * disp });
-  }
-  return out;
-}
 
 // soften vertices whose turn is sharper than maxTurn (keeps corners drivable)
 function soften(pts, maxCos, iters) {
@@ -214,30 +174,47 @@ export function generateRandomTrack(seed) {
   seed = (seed >>> 0) || 1;
   for (let attempt = 0; attempt < 40; attempt++) {
     const rng = mulberry32((seed + attempt * 0x9E3779B1) >>> 0);
-    const targetLen = 2200 + rng() * 1500;             // per-seed length 2.2..3.7 km (variety)
-    const K = 11 + Math.floor(rng() * 9);              // 11..19 seed points
+    const targetLen = 2000 + rng() * 2000;             // per-seed length 2.0..4.0 km (variety)
+    const bayDepth = rng();                            // 0 = flowing/fast .. 1 = technical/tight (per track)
+    const radMin = 0.58 - bayDepth * 0.40;             // shallow bays (gentle) .. deep bays (tight corners)
+    // ---- star polygon: nodes at monotonically-increasing angles around a centre,
+    // with strongly varied radii AND angular gaps -> deep bays/headlands become
+    // hairpins, chicanes, esses and long straights. Angular order => never self-crosses.
+    const N = 15 + Math.floor(rng() * 10);             // 15..24 nodes
     const R = 430;
-    const raw = [];
-    for (let i = 0; i < K; i++) { const ang = rng() * Math.PI * 2, rad = R * (0.35 + 0.65 * rng()); raw.push({ x: Math.cos(ang) * rad, z: Math.sin(ang) * rad }); }
-    let hull = convexHull(raw);
-    if (hull.length < 5) continue;
-    hull = pushApart(hull, 130);
-    let ctrl = displace(hull, rng, 0.32);              // primary corners
-    ctrl = displace(ctrl, rng, 0.16);                 // finer detail
-    ctrl = soften(ctrl, -0.2, 3);                     // no near-180° spikes
+    const gaps = []; let gsum = 0;
+    for (let i = 0; i < N; i++) { const g = 0.30 + rng() * rng() * 2.6; gaps.push(g); gsum += g; }  // uneven spacing
+    let ctrl = []; let ang = rng() * Math.PI * 2;
+    for (let i = 0; i < N; i++) {
+      ang += gaps[i] / gsum * Math.PI * 2;
+      const rad = R * (radMin + (1 - radMin) * rng());  // per-track bay depth sets the corner character
+      ctrl.push({ x: Math.cos(ang) * rad, z: Math.sin(ang) * rad });
+    }
+    ctrl = soften(ctrl, -0.85, 1);                     // tame only near-180° kinks (keep real hairpins)
 
-    // fit length: scale control points so the resampled loop is ~TARGET_LEN
+    // fit length: scale control points so the resampled loop is ~targetLen
     const measure = c => resample(catmullClosed(c, 10), STEP).length * STEP;
     let len = measure(ctrl);
     if (len > 100) scaleAbout(ctrl, Math.max(0.5, Math.min(2.0, targetLen / len)));
 
-    let pts = smoothClosed(resample(catmullClosed(ctrl, 12), STEP), 3, 2);
+    let pts = smoothClosed(resample(catmullClosed(ctrl, 10), STEP), 3, 2);
     const total = pts.length * STEP;
-    if (total < 2200 || total > 3800) continue;
+    if (total < 2100 || total > 4200) continue;
     if (selfIntersects(pts)) continue;
     const kap = curvature(pts);
-    let maxK = 0; for (const k of kap) maxK = Math.max(maxK, Math.abs(k));
+    let maxK = 0, corners = 0, inC = false, straight = 0;
+    for (const k of kap) {
+      const a = Math.abs(k);
+      if (a > maxK) maxK = a;
+      if (a > 0.02) { if (!inC) { corners++; inC = true; } } else inC = false;
+      if (a < 0.008) straight++;
+    }
+    // real circuit character: drivable, several corners, at least one proper corner,
+    // and genuine straights — rejects both undrivable spikes and boring constant-radius ovals
     if (maxK > MAX_CURV) continue;
+    if (corners < 4) continue;
+    if (maxK < 0.045) continue;                        // no real corner (giant gentle loop)
+    if (straight / kap.length < 0.08) continue;        // no straights (constant-curving oval)
 
     // valid — assemble the TRACK
     const elev = elevation(pts.length, rng);

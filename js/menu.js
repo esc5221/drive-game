@@ -82,22 +82,23 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart, isTouch
     const cv = card.querySelector('canvas');
 
     if (t.random) {
-      // procedural: generate a preview from a seed; the 🎲 badge rerolls it.
-      let seed = (+localStorage.getItem('ns-random-seed')) >>> 0;
+      // procedural: a fresh layout every time the menu opens (feels newly generated),
+      // and the 🎲 badge rerolls to another one.
+      let seed = 0;
       const meta = card.querySelector('.mc-meta');
-      const roll = fresh => {
-        if (fresh || !seed) seed = (Math.random() * 0xffffffff) >>> 0;
+      const roll = () => {
+        seed = (Math.random() * 0xffffffff) >>> 0;
         const gen = generateRandomTrack(seed);
         try { localStorage.setItem('ns-random-seed', String(seed)); } catch (e) {}
         if (gen) { drawPreview(cv, gen.points); meta.textContent = `Procedural · ${(gen.total / 1000).toFixed(1)} km`; }
       };
-      roll(false);
+      roll();
       card.querySelector('.mc-reroll').addEventListener('click', e => {
         e.stopPropagation();
         selTrack = t.id;
         trackWrap.querySelectorAll('.menu-card').forEach(c => c.classList.remove('active'));
         card.classList.add('active');
-        roll(true);                                   // new layout each tap
+        roll();                                       // new layout each tap
       });
     } else if (trackData[t.id]) {
       drawPreview(cv, trackData[t.id].points);
