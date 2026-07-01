@@ -3,6 +3,7 @@
 // resumes (car change applies live).
 import { TRACKS } from './tracks/index.js';
 import { CARS } from './cars.js';
+import { generateRandomTrack } from './tracks/random.js';
 
 function fmt(km) { return km >= 10 ? km.toFixed(1) : km.toFixed(1); }
 
@@ -72,13 +73,36 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart, isTouch
     if (t.hidden) continue;
     const card = document.createElement('div');
     card.className = 'menu-card' + (t.id === selTrack ? ' active' : '');
+    const nameHtml = t.random ? `${t.name} <span class="mc-reroll" title="reroll">🎲</span>` : t.name;
     card.innerHTML = `<canvas width="150" height="110"></canvas>
       <div class="mc-text">
-        <div class="mc-name">${t.name}</div>
+        <div class="mc-name">${nameHtml}</div>
         <div class="mc-meta">${t.loc} · ${fmt(t.km)} km</div>
       </div>`;
     const cv = card.querySelector('canvas');
-    if (trackData[t.id]) drawPreview(cv, trackData[t.id].points);
+
+    if (t.random) {
+      // procedural: generate a preview from a seed; the 🎲 badge rerolls it.
+      let seed = (+localStorage.getItem('ns-random-seed')) >>> 0;
+      const meta = card.querySelector('.mc-meta');
+      const roll = fresh => {
+        if (fresh || !seed) seed = (Math.random() * 0xffffffff) >>> 0;
+        const gen = generateRandomTrack(seed);
+        try { localStorage.setItem('ns-random-seed', String(seed)); } catch (e) {}
+        if (gen) { drawPreview(cv, gen.points); meta.textContent = `Procedural · ${(gen.total / 1000).toFixed(1)} km`; }
+      };
+      roll(false);
+      card.querySelector('.mc-reroll').addEventListener('click', e => {
+        e.stopPropagation();
+        selTrack = t.id;
+        trackWrap.querySelectorAll('.menu-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        roll(true);                                   // new layout each tap
+      });
+    } else if (trackData[t.id]) {
+      drawPreview(cv, trackData[t.id].points);
+    }
+
     card.addEventListener('click', () => {
       selTrack = t.id;
       trackWrap.querySelectorAll('.menu-card').forEach(c => c.classList.remove('active'));

@@ -7,6 +7,7 @@ import { TRACK as T_KART } from './tracks/kart.js';
 import { DEM } from './dem_data.js';
 import { setDem, demHeight } from './terrain.js';
 import { trackMeta } from './tracks/index.js';
+import { generateRandomTrack } from './tracks/random.js';
 import { showMenu } from './menu.js';
 import { Track, setTrackWidth } from './track.js';
 import { Vehicle, DT, setWeatherGrip } from './physics.js';
@@ -33,11 +34,25 @@ import { BENCH, autoDrive, initGpuTimer, gpuBegin, gpuEnd, benchFrame, benchRese
 
 const TRACK_DATA = { nordschleife: T_NORD, spa: T_SPA, practice: T_PRAC, kart: T_KART };
 const _savedTrack = localStorage.getItem('ns-track');
+const isRandom = _savedTrack === 'random';
 // a saved hidden/removed track (e.g. kart) falls back to the default
-const trackId = (_savedTrack && TRACK_DATA[_savedTrack] && !trackMeta(_savedTrack).hidden)
-  ? _savedTrack : 'nordschleife';
-const TRACK = TRACK_DATA[trackId] || T_NORD;
+const trackId = isRandom ? 'random'
+  : (_savedTrack && TRACK_DATA[_savedTrack] && !trackMeta(_savedTrack).hidden) ? _savedTrack : 'nordschleife';
+let randomSeed = 0;
+let TRACK;
+if (isRandom) {
+  // procedural circuit — generated from the stored seed so it's reproducible
+  randomSeed = (+localStorage.getItem('ns-random-seed')) >>> 0;
+  if (!randomSeed) randomSeed = (Math.random() * 0xffffffff) >>> 0;
+  TRACK = generateRandomTrack(randomSeed);
+  if (!TRACK) { randomSeed = (Math.random() * 0xffffffff) >>> 0; TRACK = generateRandomTrack(randomSeed); }
+  localStorage.setItem('ns-random-seed', String(randomSeed));
+} else {
+  TRACK = TRACK_DATA[trackId] || T_NORD;
+}
 const tMeta = trackMeta(trackId);
+// records/ghost keyed per generated layout so each seed keeps its own best
+const lapTid = isRandom ? 'random-' + randomSeed : trackId;
 setTrackWidth(TRACK.roadHalf || 4.5);               // narrow kart track, wide road circuits
 setDem(trackId === 'nordschleife' ? DEM : null);   // real DEM only for the 'Ring
 const track = new Track(TRACK);
@@ -102,7 +117,7 @@ function applyGfxLive(cfg) {
   renderer.shadowMap.needsUpdate = true;
 }
 
-const SPAWN_S = tMeta.spawn;   // per-track start position
+const SPAWN_S = TRACK.spawn ?? tMeta.spawn;   // per-track start (random supplies its own)
 let carId = savedCarId();
 let vehicle = new Vehicle(track, CARS[carId]);
 vehicle.reset(SPAWN_S);
@@ -110,8 +125,8 @@ vehicle.reset(SPAWN_S);
 let carVis = new CarVisual(scene, renderer, CARS[carId]);
 const input = TOUCH ? new TouchInput() : new Input();
 const audio = new CarAudio();
-const hud = new Hud(track, trackId, SPAWN_S);
-const ghost = new Ghost(scene, track, trackId);
+const hud = new Hud(track, lapTid, SPAWN_S);
+const ghost = new Ghost(scene, track, lapTid);
 hud.ghost = ghost;
 const raceLine = new RaceLine(scene, track);
 // ideal-lap guide is available only for the solved combo (practice + GT3 RS)
@@ -732,7 +747,8 @@ if (IS_VIEW) {
     currentCtrl: TOUCH ? input.mode : 'buttons',
     onCtrl: m => { if (TOUCH) input.setMode(m); },
     onStart: (selTrack, selCar) => {
-      if (selTrack !== trackId) {              // different track -> reload into it
+      // random always reloads so the (possibly rerolled) seed is regenerated fresh
+      if (selTrack !== trackId || selTrack === 'random') {   // different track -> reload into it
         localStorage.setItem('ns-track', selTrack);
         localStorage.setItem('ns-car', selCar);
         sessionStorage.setItem('ns-go', '1');
