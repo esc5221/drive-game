@@ -122,51 +122,71 @@ function scaleAbout(pts, f) {
 }
 
 // ---- segments + spawn from the finished centreline -------------------------
-function buildSegments(pts, kap) {
-  const n = pts.length, step = STEP;
-  // classify contiguous corner regions (|curv| above a threshold), split by straights
-  const CORNER = 0.010;
-  const seg = [];
-  let i = 0, cornerIdx = 0;
-  // find the longest straight first (for spawn + a Start marker)
+function buildSegments(pts, kap, rng) {
+  const n = pts.length, step = STEP, CORNER = 0.010;
+  // longest straight → spawn + a Start marker
   let bestLen = 0, bestStart = 0, run = 0, runStart = 0;
   for (let j = 0; j < n * 2; j++) {
     const a = Math.abs(kap[j % n]);
     if (a < CORNER) { if (run === 0) runStart = j; run++; if (run > bestLen && j < n + runStart) { bestLen = run; bestStart = runStart % n; } }
     else run = 0;
   }
-  const spawnS = ((bestStart + Math.floor(bestLen * 0.72)) % n) * step;   // late on the longest straight (before the corner)
-  seg.push({ name: 'Start', s: Math.round(spawnS) });
-  // corner markers
+  const spawnS = ((bestStart + Math.floor(bestLen * 0.72)) % n) * step;
+  // collect corner regions
+  const cs = []; let i = 0;
   while (i < n) {
     if (Math.abs(kap[i]) > CORNER) {
-      const start = i; let turn = 0, len = 0, signMax = 0;
-      while (i < n && Math.abs(kap[i]) > CORNER * 0.6) { turn += kap[i]; len++; signMax = Math.max(signMax, Math.abs(kap[i])); i++; }
-      const deg = Math.abs(turn) * 180 / Math.PI;
-      let name = 'Corner';
-      if (signMax > 0.11) name = 'Hairpin';
-      else if (deg > 120) name = 'Hairpin';
-      else if (len * step > 130 && signMax < 0.05) name = 'Sweeper';
-      else if (deg < 45) name = 'Kink';
-      cornerIdx++;
-      const s = Math.round(start * step);
-      if (Math.abs(s - spawnS) > 40) seg.push({ name: name + ' ' + cornerIdx, s });
+      const start = i; let turn = 0, len = 0, sm = 0; const sgn = Math.sign(kap[i]);
+      while (i < n && Math.abs(kap[i]) > CORNER * 0.6) { turn += kap[i]; len++; sm = Math.max(sm, Math.abs(kap[i])); i++; }
+      cs.push({ s: Math.round(start * step), start, deg: Math.abs(turn) * 180 / Math.PI, len, sm, sgn });
     } else i++;
   }
+  // one tight corner may become a banked Karussell (concrete bowl) — a signature feature
+  let tightIdx = -1, tightSm = 0;
+  cs.forEach((c, idx) => { if (c.sm > tightSm) { tightSm = c.sm; tightIdx = idx; } });
+  const carousel = tightSm > 0.10 && rng() < 0.7 ? tightIdx : -1;
+
+  const seg = [{ name: 'Start', s: Math.round(spawnS) }];
+  for (let c = 0; c < cs.length; c++) {
+    const cc = cs[c], nx = cs[c + 1];
+    let name;
+    if (c === carousel) name = 'Karussell';
+    else if (nx && nx.sgn !== cc.sgn && (nx.start - cc.start) * step < 170 && cc.deg < 110 && nx.deg < 110)
+      name = (nx.start - cc.start) * step < 95 ? 'Chicane' : 'Esses';
+    else if (cc.sm > 0.11 || cc.deg > 115) name = 'Hairpin';
+    else if (cc.len * step > 130 && cc.sm < 0.05) name = 'Sweeper';
+    else if (cc.deg < 40) name = 'Kink';
+    else name = 'Corner';
+    if (Math.abs(cc.s - spawnS) > 40) seg.push({ name: name + ' ' + (c + 1), s: cc.s });
+  }
   seg.sort((a, b) => a.s - b.s);
-  return { segments: seg, spawnS: Math.round(spawnS) };
+  return { segments: seg, spawnS: Math.round(spawnS), longestStraight: bestLen * step };
 }
 
-// gentle rolling elevation (a few raised-cosine crests), practice-flat baseline
+// Rolling elevation — the biggest "feature": low harmonics (periodic, so the loop
+// closes) for big hills + a couple of sharper crests (blind brows), per-track hilliness,
+// then scaled so the grade stays drivable. Non-DEM terrain follows the road, so this
+// gives real 3D — climbs, dips, crests over corners.
 function elevation(n, rng) {
-  const hills = [];
-  const count = 1 + Math.floor(rng() * 3);
-  for (let h = 0; h < count; h++) hills.push({ c: rng(), w: 0.06 + rng() * 0.12, a: (rng() * 2 - 1) * (3 + rng() * 4) });
-  return i => {
-    const f = i / n; let y = Y;
-    for (const h of hills) { let d = Math.abs(((f - h.c + 0.5) % 1) - 0.5) / h.w; if (d < 1) y += h.a * 0.5 * (1 + Math.cos(Math.PI * d)); }
-    return y;
-  };
+  const hill = 0.15 + rng() * rng();                 // 0.15 .. ~1.15 (flat .. very hilly)
+  const amp = 6 + hill * 26;
+  const H = [];
+  for (let k = 1; k <= 3; k++) H.push({ k, a: amp / (k * k) * (0.5 + rng()), p: rng() * Math.PI * 2 });
+  const bumps = [];
+  const nb = Math.floor(rng() * 3);                  // 0..2 sharper crests
+  for (let b = 0; b < nb; b++) bumps.push({ c: 0.12 + rng() * 0.76, w: 0.025 + rng() * 0.04, a: (rng() * 2 - 1) * (5 + rng() * 9) });
+  const y = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const f = i / n; let e = 0;
+    for (const h of H) e += h.a * Math.sin(2 * Math.PI * h.k * f + h.p);
+    for (const bp of bumps) { const d = Math.abs(((f - bp.c + 0.5) % 1) - 0.5) / bp.w; if (d < 1) e += bp.a * 0.5 * (1 + Math.cos(Math.PI * d)); }
+    y[i] = e;
+  }
+  for (let p = 0; p < 2; p++) { const t = y.slice(); for (let i = 0; i < n; i++) { const a = (i - 1 + n) % n, b = (i + 1) % n; y[i] = (t[a] + 2 * t[i] + t[b]) / 4; } }
+  let mg = 0; for (let i = 0; i < n; i++) { const d = Math.abs(y[i] - y[(i - 1 + n) % n]); if (d > mg) mg = d; }
+  const lim = 0.085 * STEP;                           // ≤8.5% grade — drivable
+  if (mg > lim) { const s = lim / mg; for (let i = 0; i < n; i++) y[i] *= s; }
+  return i => Y + y[i];
 }
 
 // ---- main entry ------------------------------------------------------------
@@ -202,24 +222,25 @@ export function generateRandomTrack(seed) {
     if (total < 2100 || total > 4200) continue;
     if (selfIntersects(pts)) continue;
     const kap = curvature(pts);
-    let maxK = 0, corners = 0, inC = false, straight = 0;
+    let maxK = 0, corners = 0, inC = false, straight = 0, sRun = 0, longStraight = 0;
     for (const k of kap) {
       const a = Math.abs(k);
       if (a > maxK) maxK = a;
       if (a > 0.02) { if (!inC) { corners++; inC = true; } } else inC = false;
-      if (a < 0.008) straight++;
+      if (a < 0.009) { straight++; sRun++; if (sRun > longStraight) longStraight = sRun; } else sRun = 0;
     }
-    // real circuit character: drivable, several corners, at least one proper corner,
-    // and genuine straights — rejects both undrivable spikes and boring constant-radius ovals
+    // real circuit character with actual FEATURES: drivable, several corners, at least
+    // one proper corner, genuine straights, and one clear long straight (a speed section)
     if (maxK > MAX_CURV) continue;
     if (corners < 4) continue;
-    if (maxK < 0.045) continue;                        // no real corner (giant gentle loop)
+    if (maxK < 0.06) continue;                         // no real corner (radius > ~16 m everywhere)
     if (straight / kap.length < 0.08) continue;        // no straights (constant-curving oval)
+    if (longStraight * STEP < 180) continue;           // no long straight (nothing to accelerate down)
 
     // valid — assemble the TRACK
     const elev = elevation(pts.length, rng);
     const points = pts.map((p, i) => [+p.x.toFixed(2), +elev(i).toFixed(2), +p.z.toFixed(2)]);
-    const { segments, spawnS } = buildSegments(pts, kap);
+    const { segments, spawnS } = buildSegments(pts, kap, rng);
     return {
       name: 'Random #' + (seed >>> 0), step: STEP, total,
       points, segments, origin: { lat: 0, lon: 0 },
