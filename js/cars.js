@@ -43,7 +43,17 @@ export const CARS = {
       // turbo muffles upper harmonics (matched to an Elantra N track recording).
       hpHz: 105, hpQ: 0.7, peakF: 280, peakQ: 0.6, peakDb: 3.5,
     },
-    visual: { color: 0x1f4f9e, accent: 0xc8102e, wing: 'lip', roofY: 0.64, rearY: 0.36 },
+    visual: {
+      color: 0x1f4f9e, accent: 0xc8102e, wing: 'lip', roofY: 0.64, rearY: 0.36,
+      // Ddiaz Design "2024 Hyundai Elantra N" (Sketchfab, CC-BY-NC) — fbx at
+      // 1/100 with the per-corner wheel placement lost, hence scale + wheelTag
+      model: {
+        src: './models/elantra_n.glb', scale: 100, dz: 0.26, wheelY: 0.327, wheelR: 0.327,
+        paint: 'HHyundai_ElantraNRewardRecycled_2022Paint_Material1',
+        lights: 'HHyundai_ElantraNRewardRecycled_2022LightA_Material1',
+        wheelTag: 'Wheel_1A_', caliperTag: 'Calliper_',
+      },
+    },
     dialMax: 8, dialRed: 7, dialSpeed: 300,
   },
 

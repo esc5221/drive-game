@@ -377,6 +377,15 @@ export class CarVisual {
         o.castShadow = true;
         const m = o.material;
         if (!m) return;
+        // transmissive glass forces three into an extra whole-scene render pass —
+        // swap it for plain dark glass (reads the same at game distances)
+        if (m.transmission > 0) {
+          o.material = new THREE.MeshStandardMaterial({
+            name: m.name, color: 0x10151c, metalness: 0.5, roughness: 0.12,
+            envMapIntensity: 1.2,
+          });
+          return;
+        }
         if (m.name === M.paint) {
           m.color.set(V.color);
           m.clearcoat = 1.0; m.clearcoatRoughness = 0.06; m.envMapIntensity = 1.1;
@@ -389,8 +398,46 @@ export class CarVisual {
 
       const wrap = new THREE.Group();
       wrap.rotation.y = Math.PI;                   // model +z forward -> game -z forward
+      if (M.scale) wrap.scale.setScalar(M.scale);  // fbx exports often land at 1/100
       wrap.add(root);
       wrap.updateWorldMatrix(true, true);
+
+      // ---- per-corner wheel nodes (M.wheelTag) --------------------------------
+      // Some conversions ship each wheel as its own mesh pivoted at its own
+      // centre with the corner placement lost. Bake the world transform and
+      // mount straight into the physics wheel groups; calipers ride the
+      // non-spinning group (their vertices are already wheel-centre-relative).
+      if (M.wheelTag) {
+        const bake = (mesh) => {
+          const geo = (mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone());
+          geo.applyMatrix4(mesh.matrixWorld);
+          const pivot = mesh.getWorldPosition(new THREE.Vector3());
+          geo.translate(-pivot.x, -pivot.y, -pivot.z);
+          return geo;
+        };
+        for (const [tag, wi] of Object.entries(M.wheelNodes || { LF: 0, RF: 1, LR: 2, RR: 3 })) {
+          const grp = this.wheelMeshes[wi];
+          grp.clear();
+          const spin = new THREE.Group();
+          grp.add(spin);
+          grp.userData.spin = spin;
+          root.traverse(o => {
+            if (!o.isMesh || !o.name) return;
+            const isWheel = o.name.includes(M.wheelTag + tag);
+            const isCal = M.caliperTag && o.name.includes(M.caliperTag + tag);
+            if (!isWheel && !isCal) return;
+            const part = new THREE.Mesh(bake(o), o.material);
+            part.castShadow = true;
+            (isWheel ? spin : grp).add(part);
+            o.visible = false;
+          });
+          grp.scale.setScalar(W.radius / (M.wheelR || W.radius));
+        }
+        wrap.position.set(0, staticWheelY - M.wheelY, M.dz || 0);
+        this.exterior.add(wrap);
+        this._model = wrap;
+        return;
+      }
 
       // wheels: model space AFTER the flip — axleFront node sits at -z (game front)
       for (const [nodeName, base] of [[M.axleFront, 0], [M.axleRear, 2]]) {

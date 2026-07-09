@@ -72,3 +72,4 @@ endorsed by Hyundai, Porsche, Nürburgring GmbH, or any trademark holder.
 
 ## Credits
 - 3D model: ["Porsche 911 Carrera 4S"](https://sketchfab.com/3d-models/free-porsche-911-carrera-4s-d01b254483794de3819786d93e0e1ebf) by [Karol Miklas](https://sketchfab.com/karolmiklas), licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (recoloured; wheels split for physics binding).
+- 3D model: ["2024 Hyundai Elantra N"](https://sketchfab.com/3d-models/2024-hyundai-elantra-n-4ba1b1b0eb844e318cc708ada1f2f51f) by [Ddiaz Design](https://sketchfab.com/ddiaz-design), licensed [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (recoloured; wheels rebound to physics).
