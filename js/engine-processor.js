@@ -99,6 +99,7 @@ class Cylinder {
     this.exhaustOpen = cfg.exhaustOpen; this.exhaustClosed = cfg.exhaustClosed;
     this.ignitionTime = cfg.ignitionTime;
     this.intakeValve = 0; this.exhaustValve = 0;
+    this._xPrev = 0; this._fireAmp = 1;
   }
   _updateReflections() {
     this.intakeWaveguide.reflectionFactorRight = this.intakeOpen * this.intakeValve + this.intakeClosed * (1 - this.intakeValve);
@@ -176,12 +177,39 @@ class EngineProcessor extends AudioWorkletProcessor {
       cylRefl: o.cylRefl ?? 0.62,        // was 0.75 — broaden the ~2.4kHz cylinder resonance
       pistonAmp: o.pistonAmp ?? 0.9,     // was 1.5 — gentler mechanical excitation
     };
+    // per-cylinder asymmetry (opt-in): real engines never fire a perfect comb —
+    // unequal runner lengths + per-cycle combustion variation put energy into
+    // the half-orders (the I4 "grumble"). Symmetric cylinders collapse the
+    // period to the firing order and read as an EV whine.
+    let s0 = 987654321;
+    const rnd0 = () => (s0 = (s0 * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const lenVar = o.cylLenVar || 0;             // fractional runner-length spread
+    this.phaseVar = o.phaseVar || 0;             // constant per-cyl firing offset
+    this.igniteVar = o.igniteVar || 0;           // per-cycle combustion variation
+    this._phaseOff = [];
     this.cylinders = [];
-    for (let i = 0; i < cyl; i++) this.cylinders.push(new Cylinder({ ...cfg, index: i }));
+    for (let i = 0; i < cyl; i++) {
+      const d = (rnd0() * 2 - 1);
+      this.cylinders.push(new Cylinder({
+        ...cfg,
+        exhaustLen: Math.max(4, Math.round(cfg.exhaustLen * (1 + lenVar * d))),
+        extractorLen: Math.max(4, Math.round(cfg.extractorLen * (1 + lenVar * (rnd0() * 2 - 1)))),
+        intakeLen: Math.max(4, Math.round(cfg.intakeLen * (1 + lenVar * (rnd0() * 2 - 1)))),
+        index: i,
+      }));
+      this._phaseOff.push(this.phaseVar * (rnd0() * 2 - 1));
+    }
     this.cylInv = 1 / cyl;
     this.straightPipe = new Waveguide(o.straightPipeLen || 128, 0.1, 0.1);
     this.muffler = new Muffler(o.mufflerElements || [10, 15, 20, 25], o.mufflerAction ?? 0.25);
     this.outlet = new Waveguide(5, 0.01, 0.01);
+
+    // exhaust-valve turbulence (opt-in): broadband rasp summed into the
+    // straight pipe — fills the inter-order floor a clean comb lacks. The
+    // exhaust/extractor waveguides are side resonators (they only READ the
+    // straight pipe), so the injection must happen at the straight-pipe input.
+    this.exhNoiseK = o.exhNoise || 0;
+    this.turbLP = new LowpassFilter(o.exhNoiseLP || 1400);
 
     this.intakeNoiseLP = new LowpassFilter(11000);
     this.crankshaftLP = new LowpassFilter(75);
@@ -233,8 +261,15 @@ class EngineProcessor extends AudioWorkletProcessor {
 
       let block = 0;
       for (let c = 0; c < cyls.length; c++) {
-        const x = (this.currentRevolution + c * (this.cylInv + crank)) % 1;
-        cyls[c].update(intakeNoise, this.straightPipe.outputLeft, x < 0 ? x + 1 : x, this._load);
+        let x = (this.currentRevolution + c * (this.cylInv + crank) + this._phaseOff[c]) % 1;
+        if (x < 0) x += 1;
+        // per-cycle combustion variation: resample this cylinder's fire
+        // strength each time its cycle wraps
+        if (this.igniteVar) {
+          if (x < cyls[c]._xPrev) cyls[c]._fireAmp = 1 + this.igniteVar * (this._rnd() * 2 - 1);
+          cyls[c]._xPrev = x;
+        }
+        cyls[c].update(intakeNoise, this.straightPipe.outputLeft, x, this._load * (cyls[c]._fireAmp || 1));
         block += cyls[c].cylinderWaveguide.outputRight;
       }
       this.currentRevolution += revPerSample;
@@ -244,6 +279,12 @@ class EngineProcessor extends AudioWorkletProcessor {
       for (let c = 0; c < cyls.length; c++) {
         intakeSound += cyls[c].intakeWaveguide.outputLeft;
         straightPipeInput += cyls[c].cylinderWaveguide.outputRight;
+      }
+      if (this.exhNoiseK) {
+        let valve = 0;
+        for (let c = 0; c < cyls.length; c++) valve += Math.abs(cyls[c].exhaustValve);
+        straightPipeInput += this.turbLP.get(2 * this._rnd() - 1) * valve
+                           * this.exhNoiseK * (0.25 + 0.75 * this._load);
       }
       this.straightPipe.add(straightPipeInput, this.muffler.outputLeft);
       this.outlet.add(this.muffler.outputRight, 0);

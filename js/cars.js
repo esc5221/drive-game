@@ -36,12 +36,17 @@ export const CARS = {
     engine_model: {
       cyl: 4, intakeLen: 100, exhaustLen: 120, extractorLen: 100,
       straightPipeLen: 150, mufflerElements: [9, 14, 19, 26], mufflerAction: 0.16,
-      ignitionTime: 0.018, intakeOpen: 0.25, intakeClosed: 0.9,
+      ignitionTime: 0.011, intakeOpen: 0.25, intakeClosed: 0.9,
       exhaustOpen: 0.25, exhaustClosed: 0.95,
       outletGain: 1.1, intakeMix: 0.6, blockMix: 0.75, decelPops: 1.0, level: 0.72,
+      // per-cylinder asymmetry: fills the half-orders (I4 grumble/rasp) that a
+      // symmetric comb lacks — without it the note reads as an EV whine.
+      // Matched to a 2025 Elantra N N-mode rev recording (half-order comb +
+      // inter-peak floor + band energies, tests/engine_render.py A/B).
+      cylLenVar: 0.22, phaseVar: 0.012, igniteVar: 1.0, exhNoise: 9.0, exhNoiseLP: 1200,
       // turbo I4: de-boom the sub, lift the firing body, NO treble shelf — the
-      // turbo muffles upper harmonics (matched to an Elantra N track recording).
-      hpHz: 105, hpQ: 0.7, peakF: 280, peakQ: 0.6, peakDb: 3.5,
+      // turbo muffles upper harmonics.
+      hpHz: 70, hpQ: 0.7, cutF: 1400, cutQ: 0.8, cutDb: -6.5, peakF: 250, peakQ: 0.6, peakDb: 4.0, shelfF: 2800, shelfDb: -9,
     },
     visual: {
       color: 0x1f4f9e, accent: 0xc8102e, wing: 'lip', roofY: 0.64, rearY: 0.36,
