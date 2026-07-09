@@ -1,0 +1,12 @@
+name = "drive-mp"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# room = one Durable Object; SQLite-backed (only stores the tiny room meta)
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]

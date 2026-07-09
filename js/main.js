@@ -662,6 +662,7 @@ function loop(now) {
 
   carVis.update(vehicle, dtReal);
   updateInputOverlay();
+  if (mp) mp.update(dtReal, vehicle, paused);   // multiplayer: remote playback + gated state send
   updateCamera(dtReal);
   if (_tripleActive) applyOffAxis(camera, camera.position, camera.quaternion, screenQuad('C', _geo), 0.06, 24000);
   atmo.follow(vehicle.pos);
@@ -785,6 +786,21 @@ window.__Vehicle = vehicle.constructor;
 window.__CarAudio = audio.constructor;   // debug / test handle (isolated audio)
 window.__raceLine = raceLine;            // ideal-lap harness reads offsets/vAllowed
 window.__input = input;                  // debug / test handle (control mode)
+
+// ---- multiplayer (link-only, /mp URL gated — the home page ships none of it) ----
+// enabled only at /mp, with ?room= (invite link), or ?mp=1 (local dev preview)
+let mp = null;
+const MP_ON = !IS_VIEW && !BENCH && (
+  /\/mp\/?$/.test(location.pathname) ||
+  new URLSearchParams(location.search).has('room') ||
+  new URLSearchParams(location.search).has('mp'));
+if (MP_ON) {
+  import('./net.js').then(({ MPClient }) => {
+    mp = new MPClient({ scene, trackId, randomSeed, carId, hud });
+    mp.auto();                           // ?room=CODE joins; otherwise the chip offers "방 만들기"
+    window.__mp = mp;                    // debug / test handle
+  }).catch(() => { /* multiplayer is an add-on — never block the game */ });
+}
 window.__hud = hud;                      // debug / test handle (lap timing)
 window.__camera = camera;                // debug / test handle (camera rig)
 if (BENCH) window.__benchReset = benchReset;   // CDP runner clears the warmup window
