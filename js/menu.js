@@ -62,6 +62,9 @@ export function showMenu({ trackData, currentTrack, currentCar, onStart, isTouch
         <span style="color:#3e4348;margin:0 9px;">·</span>
         <a href="./making.html" target="_blank" rel="noopener"
            style="color:#6a7177;text-decoration:none;">Build log &nearr;</a>
+        <span style="color:#3e4348;margin:0 9px;">·</span>
+        <a href="https://sketchfab.com/3d-models/free-porsche-911-carrera-4s-d01b254483794de3819786d93e0e1ebf" target="_blank" rel="noopener"
+           style="color:#6a7177;text-decoration:none;" title="Porsche 911 Carrera 4S by Karol Miklas, CC-BY-SA 4.0">911 model © Karol Miklas &nearr;</a>
       </div>
     </div>`;
   document.body.appendChild(ov);

@@ -2,6 +2,47 @@
 // (layered dash, center stack, bolstered seats, visors, paddles), gloved hands
 // on a wheel that now turns with the real steering angle, working mirror.
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { buildRoadBody } from './carbody.js';
+
+// shared GLTF loader (draco decoder served from ./draco/, fetched lazily)
+let _gltfLoader = null;
+function gltfLoader() {
+  if (!_gltfLoader) {
+    const draco = new DRACOLoader();
+    draco.setDecoderPath('./draco/');
+    _gltfLoader = new GLTFLoader();
+    _gltfLoader.setDRACOLoader(draco);
+  }
+  return _gltfLoader;
+}
+
+// split a mesh into the half whose triangles lie on one side of x=0 (world),
+// baked into world space and re-centred on `centre` — used to separate the
+// left/right wheels that ship as a single axle mesh in the 911 model.
+function halfMeshGeometry(mesh, sgn, centre) {
+  const src = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+  const p = src.attributes.position, n = src.attributes.normal;
+  const v = new THREE.Vector3(), nm = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+  const pos = [], nor = [];
+  for (let t = 0; t < p.count; t += 3) {
+    let cx = 0;
+    for (let k = 0; k < 3; k++) cx += v.fromBufferAttribute(p, t + k).applyMatrix4(mesh.matrixWorld).x;
+    if ((cx / 3) * sgn <= 0.02) continue;
+    for (let k = 0; k < 3; k++) {
+      v.fromBufferAttribute(p, t + k).applyMatrix4(mesh.matrixWorld).sub(centre);
+      pos.push(v.x, v.y, v.z);
+      v.fromBufferAttribute(n, t + k).applyMatrix3(nm).normalize();
+      nor.push(v.x, v.y, v.z);
+    }
+  }
+  if (!pos.length) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  return geo;
+}
 
 function dialTexture(label, maxVal, major, redFrom) {
   const S = 256;
@@ -98,6 +139,7 @@ export class CarVisual {
   }
 
   dispose() {
+    this._modelDead = true;              // late async GLB load must not attach
     this.scene.remove(this.root);
     this.root.traverse(o => {
       if (o.geometry) o.geometry.dispose();
@@ -114,6 +156,8 @@ export class CarVisual {
   // ---------------------------------------------------------------- exterior
   _buildExterior() {
     const V = this.spec.visual;
+    if (V.model) { this._buildModelExterior(); return; } // real GLB exterior
+    if (V.body) { this._buildLoftExterior(); return; }   // loft-surfaced cars (carbody.js)
     const paint = new THREE.MeshPhysicalMaterial({
       color: V.color, metalness: 0.32, roughness: 0.38,
       clearcoat: 1.0, clearcoatRoughness: 0.1, envMapIntensity: 0.8,
@@ -275,6 +319,187 @@ export class CarVisual {
     }
 
     this._buildWheels(0.26);
+  }
+
+  // ---- real GLB exterior (spec.visual.model) ---------------------------------
+  // Loads the model async (placeholder wheels drive immediately), recolours the
+  // paint material, wires the headlight material, and rebinds the model's wheels
+  // to the physics: each axle ships as ONE mesh containing both wheels, so it is
+  // split by world-x sign, re-centred, and mounted into the 4 wheel groups.
+  _buildModelExterior() {
+    const V = this.spec.visual, M = V.model, W = this.spec.wheels;
+    this._buildWheels(0.30);                       // physics-driven placeholders
+    const staticWheelY = W.attachY - W.restLen + 0.08;   // where update() parks a settled wheel
+    gltfLoader().load(M.src, g => {
+      if (this._modelDead) return;
+      const root = g.scene;
+      const junk = [];
+      root.traverse(o => { if (o.isLight || /^Hemi/.test(o.name || '')) junk.push(o); });
+      junk.forEach(o => o.parent && o.parent.remove(o));
+
+      // materials: paint recolour + headlight emissive hook
+      root.traverse(o => {
+        if (!o.isMesh) return;
+        o.castShadow = true;
+        const m = o.material;
+        if (!m) return;
+        if (m.name === M.paint) {
+          m.color.set(V.color);
+          m.clearcoat = 1.0; m.clearcoatRoughness = 0.06; m.envMapIntensity = 1.1;
+        }
+        if (m.name === (M.lights || 'lights')) {
+          this._headlightMat = m;
+          m.emissiveIntensity = 0.5;
+        }
+      });
+
+      const wrap = new THREE.Group();
+      wrap.rotation.y = Math.PI;                   // model +z forward -> game -z forward
+      wrap.add(root);
+      wrap.updateWorldMatrix(true, true);
+
+      // wheels: model space AFTER the flip — axleFront node sits at -z (game front)
+      for (const [nodeName, base] of [[M.axleFront, 0], [M.axleRear, 2]]) {
+        const node = root.getObjectByName(nodeName);
+        if (!node) continue;
+        const parts = node.children.filter(c => c.isMesh);
+        for (const sgn of [-1, 1]) {
+          // union bbox of this side -> single wheel centre shared by all parts
+          const box = new THREE.Box3(); const v = new THREE.Vector3();
+          for (const mesh of parts) {
+            const p = mesh.geometry.attributes.position;
+            for (let i = 0; i < p.count; i++) {
+              v.fromBufferAttribute(p, i).applyMatrix4(mesh.matrixWorld);
+              if (v.x * sgn > 0.02) box.expandByPoint(v);
+            }
+          }
+          if (box.isEmpty()) continue;
+          const centre = box.getCenter(new THREE.Vector3());
+          const wi = base + (sgn < 0 ? 0 : 1);     // wheel order: FL, FR, RL, RR
+          // visual wheel x follows the MODEL's fenders (physics track is wider —
+          // wheels poking out of the arches read broken; 10 cm is imperceptible)
+          (this._wheelXFix || (this._wheelXFix = []))[wi] = centre.x;
+          const grp = this.wheelMeshes[wi];
+          grp.clear();
+          const spin = new THREE.Group();
+          grp.add(spin);
+          grp.userData.spin = spin;
+          for (const mesh of parts) {
+            const geo = halfMeshGeometry(mesh, sgn, centre);
+            if (!geo) continue;
+            const part = new THREE.Mesh(geo, mesh.material);
+            part.castShadow = true;
+            (mesh.material.name === M.caliper ? grp : spin).add(part);   // calipers don't spin
+          }
+          grp.scale.setScalar(W.radius / (M.wheelR || W.radius));
+        }
+        node.visible = false;
+      }
+
+      // body placement: align wheel centres to the physics wheels
+      wrap.position.set(0, staticWheelY - M.wheelY, M.dz || 0);
+      this.exterior.add(wrap);
+      this._model = wrap;
+    });
+  }
+
+  // ---- loft-surfaced exterior (carbody.js) — cars with spec.visual.body ------
+  _buildLoftExterior() {
+    const V = this.spec.visual;
+    const B = { ...V.body };
+    // fender humps from data -> closure
+    if (B.humpsAt) { const H = B.humpsAt; B.humps = z => H.reduce((s, h) => s + h.h * Math.exp(-(((z - h.z) / h.s) ** 2)), 0); }
+    const paint = new THREE.MeshPhysicalMaterial({
+      color: V.color, metalness: 0.28, roughness: 0.32,
+      clearcoat: 1.0, clearcoatRoughness: 0.08, envMapIntensity: 1.0,
+    });
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0x10151c, metalness: 0.55, roughness: 0.12, envMapIntensity: 1.2,
+    });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x14171c, roughness: 0.62 });
+    this.exterior.add(buildRoadBody(B, { paint, glass: glassMat, dark: darkMat }));
+
+    // ---- lights -------------------------------------------------------------
+    const lightMat = new THREE.MeshStandardMaterial({
+      color: 0xe8eef4, emissive: 0xb0c4d8, emissiveIntensity: 0.5, roughness: 0.25,
+    });
+    this._headlightMat = lightMat;
+    for (const sgn of [-1, 1]) {                       // oval lamps on the fender front
+      const hl = new THREE.Mesh(new THREE.SphereGeometry(0.115, 18, 12), lightMat);
+      hl.scale.set(1.0, 0.78, 0.5);
+      hl.position.set(sgn * B.lampX, B.lampY, B.z0 + 0.10);
+      this.exterior.add(hl);
+    }
+    const tailMat = new THREE.MeshStandardMaterial({
+      color: 0x420508, emissive: 0xcc0a12, emissiveIntensity: 0.9, roughness: 0.3,
+    });
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(B.tailW, 0.045, 0.03), tailMat);   // full-width light bar
+    bar.position.set(0, B.tailY, B.z1 - 0.015);
+    this.exterior.add(bar);
+
+    // ---- aero / trim ----------------------------------------------------------
+    const splitter = new THREE.Mesh(new THREE.BoxGeometry(V.body.width[0][1] * 2 + 0.1, 0.035, 0.30), darkMat);
+    splitter.position.set(0, B.yLow - 0.015, B.z0 + 0.13);
+    this.exterior.add(splitter);
+    const intake = new THREE.Mesh(new THREE.BoxGeometry(1.06, 0.16, 0.06), darkMat);   // front bumper intake
+    intake.position.set(0, B.yLow + 0.13, B.z0 + 0.015);
+    intake.rotation.x = 0.08;
+    this.exterior.add(intake);
+    const diff = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.16, 0.24), darkMat);      // rear diffuser
+    diff.position.set(0, B.yLow + 0.02, B.z1 - 0.10);
+    this.exterior.add(diff);
+    for (const sgn of [-1, 1]) {                       // side mirrors on the A-pillar base
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.03), paint);
+      arm.position.set(sgn * (this._loftW(B, B.cabin[0]) + 0.06), B.mirrorY, B.cabin[0] + 0.10);
+      this.exterior.add(arm);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.11, 0.20), paint);
+      head.position.set(sgn * (this._loftW(B, B.cabin[0]) + 0.15), B.mirrorY + 0.02, B.cabin[0] + 0.12);
+      this.exterior.add(head);
+    }
+
+    // ---- wing --------------------------------------------------------------
+    if (V.wing === 'gt') {
+      const wingY = B.wingY, wingZ = B.wingZ ?? (B.z1 - 0.55);
+      const deckY = B.wingDeckY ?? 0.16;               // where the arms root on the decklid
+      const el = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.03, 0.34), darkMat);     // main element
+      el.rotation.x = -0.14;
+      el.position.set(0, wingY, wingZ);
+      el.castShadow = true;
+      this.exterior.add(el);
+      for (const sgn of [-1, 1]) {
+        // swan-neck arms: from the decklid up+forward to the element's top surface
+        const len = Math.hypot(wingY - deckY, 0.18);
+        const neck = new THREE.Mesh(new THREE.BoxGeometry(0.05, len, 0.09), darkMat);
+        neck.rotation.x = 0.32;
+        neck.position.set(sgn * 0.42, (wingY + deckY) / 2 + 0.02, wingZ - 0.04);
+        this.exterior.add(neck);
+        const ep = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.15, 0.40), darkMat);  // endplates
+        ep.position.set(sgn * 0.73, wingY - 0.02, wingZ);
+        this.exterior.add(ep);
+      }
+    } else if (V.wing === 'lip') {
+      const lip = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.035, 0.20), paint);
+      lip.position.set(0, B.tailY + 0.10, B.z1 - 0.10);
+      lip.rotation.x = -0.10;
+      this.exterior.add(lip);
+    }
+
+    // exhaust
+    for (const sgn of [-1, 1]) {
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.10, 12), darkMat);
+      pipe.rotation.x = Math.PI / 2;
+      pipe.position.set(sgn * 0.16, B.yLow + 0.06, B.z1 - 0.02);
+      this.exterior.add(pipe);
+    }
+
+    this._buildWheels(0.30);
+  }
+  _loftW(B, z) {                                       // body half-width at z (mirror mount)
+    const stops = B.width;
+    let i = 0; while (i + 1 < stops.length && stops[i + 1][0] < z) i++;
+    const [z0, v0] = stops[i], [z1, v1] = stops[Math.min(i + 1, stops.length - 1)];
+    const t = z1 === z0 ? 0 : Math.min(1, Math.max(0, (z - z0) / (z1 - z0)));
+    return v0 + (v1 - v0) * t * t * (3 - 2 * t);
   }
 
   // four spinning wheel groups (positioned each frame in update)
@@ -867,7 +1092,7 @@ export class CarVisual {
     for (let i = 0; i < 4; i++) {
       const w = vehicle.wheels[i];
       const g = this.wheelMeshes[i];
-      g.position.set(w.x, w.attachY - w.restLen + w.comp, w.z);
+      g.position.set(this._wheelXFix ? this._wheelXFix[i] : w.x, w.attachY - w.restLen + w.comp, w.z);
       g.rotation.y = -w.steer;
       g.userData.spin.rotation.x = -w.spinAngle;
     }

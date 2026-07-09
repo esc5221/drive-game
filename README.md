@@ -69,3 +69,6 @@ Code is **MIT** (see [LICENSE](LICENSE)). Bundled track data is **ODbL 1.0**
 Fan project, non-commercial. Car and track names and other marks belong to their
 respective owners and are used for identification only — not affiliated with or
 endorsed by Hyundai, Porsche, Nürburgring GmbH, or any trademark holder.
+
+## Credits
+- 3D model: ["Porsche 911 Carrera 4S"](https://sketchfab.com/3d-models/free-porsche-911-carrera-4s-d01b254483794de3819786d93e0e1ebf) by [Karol Miklas](https://sketchfab.com/karolmiklas), licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (recoloured; wheels split for physics binding).

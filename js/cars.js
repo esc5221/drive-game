@@ -87,7 +87,15 @@ export const CARS = {
       hpHz: 195, hpQ: 0.7, cutF: 150, cutQ: 1.1, cutDb: -6.0,
       peakF: 950, peakQ: 0.7, peakDb: 4.0, shelfF: 4200, shelfDb: 1.5,
     },
-    visual: { color: 0xf2c200, accent: 0x111111, wing: 'gt', roofY: 0.58, rearY: 0.40 },
+    visual: {
+      color: 0xf2c200, accent: 0x111111, wing: 'gt', roofY: 0.58, rearY: 0.40,
+      // real 911 exterior — "Porsche 911 Carrera 4S" by Karol Miklas (CC-BY-SA 4.0)
+      model: {
+        src: './models/911.glb', dz: -0.22, wheelY: -0.30, wheelR: 0.33,
+        paint: 'paint', lights: 'lights', caliper: 'Material.001',
+        axleFront: 'Cylinder001', axleRear: 'Cylinder000',
+      },
+    },
     dialMax: 10, dialRed: 9, dialSpeed: 340,
   },
 
@@ -134,7 +142,35 @@ export const CARS = {
       hpHz: 200, hpQ: 0.7, cutF: 150, cutQ: 1.1, cutDb: -7.0,
       peakF: 950, peakQ: 0.7, peakDb: 5.0, shelfF: 4200, shelfDb: 2.5,
     },
-    visual: { color: 0xa7d84b, accent: 0x111111, wing: 'gt', roofY: 0.57, rearY: 0.40 },
+    visual: {
+      color: 0xa7d84b, accent: 0x111111, wing: 'gt', roofY: 0.57, rearY: 0.40,
+      // real 911 exterior — "Porsche 911 Carrera 4S" by Karol Miklas (CC-BY-SA 4.0)
+      model: {
+        src: './models/911.glb', dz: -0.22, wheelY: -0.30, wheelR: 0.33,
+        paint: 'paint', lights: 'lights', caliper: 'Material.001',
+        axleFront: 'Cylinder001', axleRear: 'Cylinder000',
+      },
+      // loft-surfaced body (carbody.js) — hand-tuned 992 GT3 RS silhouette
+      body: {
+        z0: -2.28, z1: 2.20, yLow: -0.30,
+        // belt (shoulder) line: high front fenders, door dip, strong rear haunch
+        belt: [[-2.28, -0.10], [-1.50, 0.10], [-0.70, 0.04], [0.30, 0.07], [0.96, 0.16], [1.70, 0.12], [2.20, 0.00]],
+        // centreline: low nose -> low hood -> windshield -> roof -> fastback -> engine deck
+        deck: [[-2.28, -0.14], [-1.85, -0.04], [-1.20, 0.02], [-0.62, 0.08], [-0.48, 0.16], [-0.05, 0.52], [0.40, 0.56], [0.75, 0.50], [1.05, 0.34], [1.45, 0.20], [2.20, 0.08]],
+        // plan view half-width: nose taper, door tuck, wide rear hips
+        width: [[-2.28, 0.66], [-1.50, 0.80], [-0.60, 0.75], [0.30, 0.77], [0.96, 0.89], [1.60, 0.83], [2.20, 0.70]],
+        arches: [
+          { z: -1.50, r: 0.46, lift: 0.92, flare: 0.045 },
+          { z: 0.96, r: 0.48, lift: 0.92, flare: 0.075 },
+        ],
+        cabin: [-0.52, 1.05],
+        pillars: [[-0.52, -0.45], [0.86, 1.05]],       // thin A-pillar band + fastback C-pillar
+        glassInset: 0.09, roofW: 0.40, crown: 0.06,
+        humpsAt: [{ z: -1.48, s: 0.50, h: 0.075 }],    // 911 front fenders above the hood
+        lampX: 0.58, lampY: 0.02, tailW: 1.38, tailY: 0.10,
+        mirrorY: 0.14, wingY: 0.50, wingZ: 1.62, wingDeckY: 0.17,
+      },
+    },
     dialMax: 10, dialRed: 9, dialSpeed: 320,
   },
 
