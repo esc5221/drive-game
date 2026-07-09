@@ -789,12 +789,10 @@ window.__input = input;                  // debug / test handle (control mode)
 
 // ---- multiplayer (link-only — the home page ships none of it) --------------------
 // The lobby lives at /mp (mp.html via Pages pretty URLs); the game side activates
-// only with ?room=. An early deploy 301'd /mp -> /?mp=1 and browsers cache 301s
-// permanently, so rescue those visitors by forwarding them to the lobby.
-const _q = new URLSearchParams(location.search);
-if (_q.has('mp') && !_q.has('room')) location.replace('./mp.html');
+// only with ?room=. (Stale /mp-301 visitors are rescued by an inline script in
+// index.html before any asset loads.)
 let mp = null;
-const MP_ON = !IS_VIEW && !BENCH && _q.has('room');
+const MP_ON = !IS_VIEW && !BENCH && new URLSearchParams(location.search).has('room');
 if (MP_ON) {
   import('./net.js').then(({ MPClient }) => {
     mp = new MPClient({ scene, trackId, randomSeed, carId, hud });
