@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR — Nürburgring Drive 멀티플레이어 설계</title>
+
+<style>
+/* ===== LOOK TOKENS : looks/paper.md ===== */
+:root{
+  --bg:#f3f4f6;
+  --surface:#ffffff;
+  --ink:#16181d;
+  --ink-soft:#3a3e46;
+  --ink-faint:#9aa0a8;
+  --line:#dcdee2;
+  --line-soft:#ebedf0;
+  --accent:#1f5fa8;      --accent-soft:#eaf1f9;
+  --good:#1f6b3a;        --good-soft:#eaf5ee;
+  --warn:#9a5b00;        --warn-soft:#fbf2e3;
+  --bad:#a3301f;         --bad-soft:#fbeeec;
+  --info:#5b4a9a;        --info-soft:#efecf8;
+  --code-bg:#f1f2f4;
+  --code-ink:#2c2f36;
+  --font-body:-apple-system,BlinkMacSystemFont,'Segoe UI','Pretendard',Inter,Roboto,sans-serif;
+  --font-mono:'SF Mono',ui-monospace,'JetBrains Mono',Menlo,Consolas,monospace;
+  --radius:5px;
+  --radius-sm:3px;
+  --shadow:0 1px 3px rgba(0,0,0,.05);
+  --weight-strong:660;
+  --mark-bg:var(--warn-soft);
+  --mark-ink:#7a4a00;
+}
+
+/* ===== adr format ===== */
+*{box-sizing:border-box}
+body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--font-body); font-size:15px; line-height:1.64; }
+.page{ max-width:880px; margin:34px auto; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); padding:54px 60px 80px; }
+@media(max-width:720px){ .page{ padding:34px 24px; } }
+.mast{ border-bottom:2px solid var(--ink); padding-bottom:14px; margin-bottom:8px; }
+.mast .kicker{ font-family:var(--font-mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); font-weight:700; }
+h1{ font-size:23px; font-weight:700; letter-spacing:-.015em; margin:6px 0 0; line-height:1.3; }
+.meta{ display:grid; grid-template-columns:repeat(2,1fr); gap:2px 30px; margin:16px 0 4px; font-size:12.5px; font-family:var(--font-mono); }
+.meta div{ display:flex; gap:8px; padding:3px 0; border-bottom:1px solid var(--line-soft); }
+.meta .k{ color:var(--ink-faint); min-width:88px; }
+.meta .v{ color:var(--ink-soft); }
+.status{ display:inline-block; font-family:var(--font-mono); font-size:11px; font-weight:700; padding:1px 8px; border-radius:var(--radius-sm); background:var(--warn-soft); color:var(--warn); }
+.status.good{ background:var(--good-soft); color:var(--good); }
+.status.accent{ background:var(--accent-soft); color:var(--accent); }
+h2{ font-size:16.5px; font-weight:680; letter-spacing:-.01em; margin:38px 0 10px; padding-top:16px; border-top:1px solid var(--line); }
+h2 .no{ font-family:var(--font-mono); color:var(--accent); font-weight:700; margin-right:12px; font-size:14px; }
+h3{ font-size:13.5px; font-weight:680; margin:20px 0 6px; color:var(--ink-soft); }
+p{ margin:9px 0; color:var(--ink-soft); }
+.lead{ font-size:15px; color:var(--ink-soft); }
+strong{ font-weight:var(--weight-strong); color:var(--ink); }
+em{ font-style:italic; color:var(--ink); background:none; padding:0; }
+code{ font-family:var(--font-mono); font-size:.84em; background:var(--code-bg); padding:1px 5px; border-radius:var(--radius-sm); color:var(--code-ink); }
+pre{ font-family:var(--font-mono); font-size:12.2px; line-height:1.55; background:var(--code-bg); border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:var(--radius); padding:14px 16px; overflow-x:auto; color:var(--ink-soft); margin:14px 0; white-space:pre; }
+pre b{ color:var(--ink); font-weight:700; }
+pre .c{ color:var(--ink-faint); }
+pre .g{ color:var(--good); font-weight:600; } pre .a{ color:var(--warn); font-weight:600; } pre .r{ color:var(--bad); font-weight:600; }
+.callout{ border:1px solid var(--line); border-left:3px solid var(--accent); background:var(--accent-soft); border-radius:var(--radius); padding:11px 15px; margin:14px 0; font-size:14px; color:var(--ink); }
+.callout .lab{ font-family:var(--font-mono); font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); display:block; margin-bottom:3px; }
+.callout.decision{ border-left-color:var(--good); background:var(--good-soft); }
+.callout.decision .lab{ color:var(--good); }
+.callout.constraint{ border-left-color:var(--warn); background:var(--warn-soft); }
+.callout.constraint .lab{ color:var(--warn); }
+table{ width:100%; border-collapse:collapse; margin:14px 0; font-size:13px; }
+th,td{ text-align:left; padding:8px 11px; border-bottom:1px solid var(--line-soft); vertical-align:top; }
+th{ font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); font-weight:700; border-bottom:1.5px solid var(--line); }
+td code{ font-size:11.5px; }
+tbody tr:hover{ background:var(--accent-soft); }
+.chosen td{ background:var(--good-soft); }
+.chosen td:first-child{ font-weight:680; }
+ul{ margin:8px 0; padding-left:20px; } li{ margin:4px 0; color:var(--ink-soft); }
+.sm{ font-size:12.5px; color:var(--ink-faint); }
+.rev{ font-family:var(--font-mono); font-size:12px; }
+.rev th,.rev td{ padding:5px 10px; }
+footer{ margin-top:44px; padding-top:14px; border-top:2px solid var(--ink); font-size:11.5px; color:var(--ink-faint); font-family:var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="mast">
+  <div class="kicker">ADR · Nürburgring Drive · Multiplayer</div>
+  <h1>고스트 레이싱 멀티플레이어 — Cloudflare Durable Objects 릴레이 설계</h1>
+</div>
+
+<div class="meta">
+  <div><span class="k">문서 ID</span><span class="v">ADR-MP-001</span></div>
+  <div><span class="k">개정</span><span class="v">0.2</span></div>
+  <div><span class="k">상태</span><span class="v"><span class="status">검토용 초안</span></span></div>
+  <div><span class="k">분류</span><span class="v">drive-game · 네트워크</span></div>
+  <div><span class="k">스택</span><span class="v">CF Workers + Durable Objects (esc5221)</span></div>
+  <div><span class="k">클라이언트</span><span class="v">Three.js + 커스텀 240 Hz 물리 (브라우저)</span></div>
+</div>
+
+<h2><span class="no">1.0</span>요약</h2>
+<p class="lead">링크로 초대한 친구들이 같은 트랙에서 서로의 차를 실시간으로 보고, <strong>카운트다운 동시 출발 → 결과 보드</strong>로 한판씩 겨루는 <strong>프렌즈 룸 고스트 레이싱</strong>을 구현한다. 서버는 Cloudflare Durable Object <em>방 하나당 하나</em>가 바이너리 상태 패킷과 채팅·레이스 이벤트를 릴레이만 하고, 물리·충돌·판정은 전부 클라이언트에 남는다. 퍼블릭 로비는 만들지 않는다 — 방은 링크/코드로만 존재한다.</p>
+
+<div class="callout decision"><span class="lab">Decision · 결정</span>
+<strong>서버 권위 물리 없음 · 충돌 없음 · 순수 릴레이.</strong> 이 게임의 본질은 타임어택(베스트랩·고스트·아이디얼랩)이고, 240 Hz 커스텀 물리를 서버로 옮기는 순간 조작감과 비용 둘 다 잃는다. 원격 차는 "실시간 스트리밍되는 고스트"로 취급한다 — 기존 <code>ghost.js</code>(10 Hz 위치+쿼터니언 기록·보간 재생)가 이미 그 렌더러다.</div>
+
+<div class="callout constraint"><span class="lab">Constraint · 비용 불변식</span>
+<strong>멀티가 실제로 일어나는 순간에만 과금이 발생해야 한다.</strong> OFF면 코드도 안 싣고, 혼자면 침묵하고, 방이 비면 hibernate. 상세 설계는 6.0.</div>
+
+<h2><span class="no">2.0</span>모드 결정 — 왜 고스트 레이싱인가</h2>
+<table>
+  <thead><tr><th>옵션</th><th>조작감</th><th>구현 비용</th><th>판정</th></tr></thead>
+  <tbody>
+    <tr><td>서버 권위 + 롤백</td><td>&gt;50 ms RTT에서 되감기 체감, 240 Hz 물리 서버 포팅 필요</td><td>매우 큼 (물리 이식 + 예측/보정)</td><td>기각 — 브라우저 게임에 과설계</td></tr>
+    <tr><td>P2P (WebRTC 메시)</td><td>좋음 (직결)</td><td>큼 (시그널링·NAT·N² 연결)</td><td>기각 — 모바일 NAT 신뢰 불가</td></tr>
+    <tr class="chosen"><td>고스트 릴레이 (DO)</td><td>내 차는 로컬 240 Hz 그대로 = 완벽. 남의 차만 보간</td><td>작음 (기존 고스트 시스템 재활용)</td><td><strong>채택</strong> — 게임 본질(타임어택)과 정합</td></tr>
+  </tbody>
+</table>
+<p class="sm">충돌이 없으므로 롤백·서버 재조정·치팅 방지 물리가 전부 불필요해진다 — 이 선택이 이후 모든 단순함의 원천이다.</p>
+
+<h2><span class="no">3.0</span>아키텍처 · 프로토콜</h2>
+<pre>[브라우저 A]──wss──┐
+[브라우저 B]──wss──┼──▶ Worker (라우팅) ──▶ <b>Durable Object = 방 1개</b>
+[브라우저 C]──wss──┘                          WebSocket Hibernation API
+                                              로스터 · 릴레이 · 랩 이벤트
+방 ID = 4자리 코드 (링크 전용)   <span class="c">?room=K7QX — 방이 트랙 ID + 랜덤 시드를 스냅샷으로 소유</span></pre>
+
+<h3>3.1 &nbsp;상태 패킷 (클라 → DO, 바이너리 ≈ 40 B)</h3>
+<pre>seq(u16) · pos(3×f32) · quat(smallest-three, 32 bit) · vel(3×i16, cm/s)
+steer(i8) · throttle/brake(u8) · flags(u8: 접지·슬립·라이트) · gear(u4)
+<span class="c">→ 12 Hz 송신. DO는 파싱 없이 senderId만 붙여 나머지 전원에게 즉시 릴레이</span></pre>
+
+<h3>3.2 &nbsp;제어 메시지 (JSON, 저빈도)</h3>
+<pre>join {nick, car, color}    roster {players[]}     leave {id}
+lap  {ms, valid}           best {id, ms}          <span class="c"># 세션 리더보드</span>
+chat {text}                                       <span class="c"># 릴레이, 200자 제한</span>
+race_start {laps, inMs}    finish {totalMs}       race_end {results[]}   <span class="c"># 레이스 세션</span></pre>
+
+<h2><span class="no">4.0</span>지연 보정 — 원격 차 재생 파이프라인</h2>
+<p class="lead">서버 권위가 없으므로 문제는 하나로 압축된다: <em>남의 차를 얼마나 부드럽고 정확하게 그리느냐.</em> 플레이어별 독립 파이프라인:</p>
+<pre>① <b>적응형 지터 버퍼</b>   재생 지연 = max(120 ms, 2×관측 지터). 스냅샷 2~3개 뒤에서 재생
+② <b>Hermite 보간</b>       pos+vel 3차 보간 — 200 km/h면 틱당 4.6 m: 선형은 코너를 깎는다
+③ <b>quaternion slerp</b>   자세 보간
+④ <b>dead reckoning</b>     버퍼 고갈 시 마지막 vel+yaw rate로 최대 250 ms 외삽 → 페이드아웃
+⑤ <b>수렴 스냅</b>          새 패킷 오차 &lt;0.5 m → 부드럽게 blend / 크면 순간이동(리스폰 판정)</pre>
+<ul>
+  <li><strong>시계 동기화 불필요</strong> — 스트림별 상대시간 재생(지터 버퍼)이라 클라 시계 오프셋이 무관하다.</li>
+  <li><strong>DO 배치</strong> — 첫 접속자 근처 PoP에 뜬다(한국 유저끼리면 ICN/NRT, RTT 10~40 ms). 어차피 보간 지연 120 ms가 지배적이라 고스트 레이싱엔 충분.</li>
+</ul>
+
+<h2><span class="no">5.0</span>IA · 유저플로우 — 링크 전용</h2>
+<p class="lead">방은 링크/코드로만 존재한다. <strong>URL이 곧 초대장</strong> — 카톡에 링크 하나 던지면 끝이고, 코드 입력은 백업 수단이다. 퍼블릭 로비를 없앤 결과 채팅 모더레이션 문제가 사라지고(신뢰 그룹), 방이 의도적으로 만들 때만 존재해 비용도 더 준다.</p>
+<pre>메뉴 (기존 구조에 한 블록 추가)
+  TRACK / CAR / STEERING
+  <b>MULTIPLAYER</b>   [ 방 만들기 ]  [ 코드로 참가 ____ ]
+    └ 방 안이면:  ROOM K7QX · 3명 ·  [ 링크 복사 ]  [ 나가기 ]
+  DRIVE
+
+호스트   방 만들기 → 코드 K7QX 생성, 현재 트랙+랜덤시드를 방이 스냅샷으로 소유
+         → <b>?room=K7QX 링크 복사</b> → 카톡 → DRIVE
+게스트   링크 클릭 → 트랙/시드 자동 로드 + 방 입장 + 첫 1회 닉네임 → DRIVE만
+자유주행  방 안에서는 항상 서로 보임(고스트식) · 랩은 각자 · 리더보드 공유
+끊김     조용히 재접속(같은 방으로), 실패해도 주행은 계속 — 멀티는 애드온
+Watch    이름표 [AI] 표시하고 그대로 송신</pre>
+
+<h3>5.1 &nbsp;채팅 — 되고, 링크 전용이라 안전하다</h3>
+<p>같은 WS 릴레이에 JSON <code>chat</code> 메시지 한 종류 추가라 서버 비용·복잡도는 사실상 0(저빈도, 20:1 카운트). 관건은 입력 UX:</p>
+<pre>데스크톱   <b>Enter</b> = 채팅 입력 열기 → 입력 중 게임 키 입력 차단(input gate) → Enter 전송 · Esc 닫기
+모바일     주행 중 타이핑 불가 → 일시정지/결과 화면에서 입력 + <b>퀵챗 4버튼</b>("GG" "ㅋㅋ" "고고" "한판 더")
+표시       좌하단 피드, 최근 5줄, 8 s 후 페이드아웃 · 닉 색상 = 차 틴트 색과 동일
+안전       링크 초대 방 = 신뢰 그룹 → 필터/신고 불요 (퍼블릭이었다면 불가능했던 결정)</pre>
+
+<h3>5.2 &nbsp;레이스 세션 — 시작/종료 UX</h3>
+<p>프렌즈 방이므로 "한판" 구조가 핵심이 된다. 방 상태머신:</p>
+<pre><b>FREE</b>(자유주행) ──호스트 RACE──▶ <b>COUNTDOWN</b>(5 s) ──▶ <b>RACING</b> ──▶ <b>RESULTS</b> ──▶ FREE
+                                                              (전원 완주 or 타임아웃)</pre>
+<ul>
+  <li><strong>시작</strong> — 호스트만 <code>RACE</code> 버튼(랩 수 1/3/5 선택). 서버가 <code>race_start</code> 브로드캐스트 → 전원 차를 그리드로 리셋(출발 직선에 2열 지그재그 스폰, 겹침 없음) → 입력 잠금.</li>
+  <li><strong>카운트다운 오버레이</strong> — 화면 중앙 대형 <code>3 · 2 · 1 · GO</code> + 비프음(기존 WebAudio로 오실레이터 3단 비프, GO는 높은 톤). 시계 동기화는 수신시각 + RTT/2 보정으로 충분 — 충돌이 없으니 ±50 ms 스큐는 각자 GO부터 랩을 재므로 공정성에 영향 없음.</li>
+  <li><strong>주행 중 HUD</strong> — 타이밍 옆에 <code>P2/4 · LAP 1/3</code>. 순위는 로컬 계산(완주 랩 수 + trackS 진행도, 원격 상태로부터) — 서버 판정 불요.</li>
+  <li><strong>종료</strong> — 각자 N랩 완주 시 <code>finish {totalMs}</code> 송신, 서버가 도착 순서대로 브로드캐스트. <strong>결과 오버레이</strong>: 다크 카드에 순위 보드(1st 닉 — 타임, 갭 +x.xx, 베스트랩 하이라이트), 내 행 강조. 하단 버튼 <code>[한판 더]</code>(호스트)·<code>[자유주행]</code>. 미완주자는 우승자 완주 후 120 s 타임아웃 → DNF. 아직 달리는 사람 화면엔 확정 순위가 실시간으로 쌓임.</li>
+  <li><strong>난입</strong> — RACING 중 입장한 게스트는 자유주행(관전 태그), 다음 판부터 참가.</li>
+</ul>
+<table>
+  <thead><tr><th>안 만드는 것</th><th>근거</th></tr></thead>
+  <tbody>
+    <tr><td>퍼블릭 로비 · 방 목록</td><td>링크 전용으로 단순화 — 채팅 안전·비용·IA 전부 이득</td></tr>
+    <tr><td>준비(Ready) 체크</td><td>호스트 시작 + 5 s 카운트다운이면 충분. 클릭 하나 줄임</td></tr>
+    <tr><td>계정/로그인</td><td>닉네임 localStorage로 충분</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="no">6.0</span>DO 비용 설계 — "멀티일 때만 과금"</h2>
+<p class="lead">Cloudflare 과금 모델의 세 축(요청·듀레이션·스토리지)을 각각 0으로 눌러놓고, 실제 동시 주행이 일어나는 순간에만 비용이 켜지게 설계한다.</p>
+
+<h3>6.1 &nbsp;과금 모델과 대응 설계</h3>
+<table>
+  <thead><tr><th>과금 축</th><th>규칙</th><th>대응 설계</th></tr></thead>
+  <tbody>
+    <tr><td>요청 (수신 WS)</td><td>수신 메시지 20:1로 카운트, <strong>발신은 무료</strong>, 프로토콜 ping 무료</td><td>서버 틱 없이 <strong>수신 즉시 릴레이</strong> — 발신이 공짜라 배칭보다 릴레이가 더 싸고 단순</td></tr>
+    <tr><td>듀레이션 (메모리 상주)</td><td>DO가 깨어 있는 동안만 GB-s 과금</td><td><strong>Hibernation API</strong>: <code>acceptWebSocket</code> + <code>serializeAttachment</code>(로스터 메타) + <code>setWebSocketAutoResponse</code>(ping/pong이 DO를 깨우지 않음). <strong>alarm/setInterval 금지</strong> — 서버 주기 루프는 DO를 상시 깨워 듀레이션을 태운다</td></tr>
+    <tr><td>스토리지 (SQLite)</td><td>2026-01부터 과금</td><td><strong>저장 안 함</strong> — 로스터·세션 베스트랩은 인메모리+소켓 attachment. 영속 랭킹은 스코프 밖</td></tr>
+  </tbody>
+</table>
+
+<h3>6.2 &nbsp;클라이언트 게이팅 — 비용이 켜지는 조건을 좁힌다</h3>
+<pre><span class="c"># 위에서 아래로 갈수록 비용이 커진다. 각 단계는 명시적 조건으로만 진입.</span>
+ONLINE=OFF        네트워크 모듈 dynamic import조차 안 함              비용 0
+메뉴/일시정지      연결 유지하되 송신 0 Hz, 60 s 지나면 disconnect      ≈ 0
+<b>방에 혼자</b>        roster&lt;2 → 상태 송신 0 Hz (join 브로드캐스트만 대기)  <b>hibernate → 0</b>
+탭 숨김           visibilitychange → 송신 정지, 30 s 후 disconnect     ≈ 0
+동시 주행 (진짜 멀티) 12 Hz 송신 · 즉시 릴레이                          과금 구간</pre>
+<div class="callout"><span class="lab">핵심 아이디어</span>
+<strong>"방에 혼자면 침묵"</strong>이 최대 절감 장치다. 호스트가 방을 만들고 친구를 기다리는 동안 송신이 0이면 DO에 들어오는 메시지가 0 → hibernate → 요청·듀레이션 모두 0. 게스트의 join 브로드캐스트(그 순간만 깸)를 받으면 즉시 송신을 재개한다. 링크 전용이라 방 자체가 의도적으로 만들 때만 존재하므로, 결과적으로 <em>친구들이 실제로 같이 달리는 시간에만</em> 과금된다.</div>
+
+<h3>6.3 &nbsp;비용 추정</h3>
+<table>
+  <thead><tr><th>시나리오 (하루)</th><th>수신 billed req</th><th>듀레이션</th><th>판정</th></tr></thead>
+  <tbody>
+    <tr><td>방 2개 × 4명 × 4시간 동시 주행</td><td>4×12 Hz×14,400 s÷20×2 ≈ <strong>27.6 k</strong></td><td>2방×4 h×0.125 GB ≈ <strong>3.6 k GB-s</strong></td><td>무료 티어(10만 req · 13 k GB-s/일) 내</td></tr>
+    <tr><td>아무도 방을 안 만든 날</td><td>0 (방 자체가 없음)</td><td>0</td><td>0원</td></tr>
+    <tr><td>성장 시 (10× 트래픽)</td><td>≈ 276 k/일</td><td>≈ 36 k GB-s/일</td><td>Workers Paid $5/mo로 흡수 (1 M req·400 k GB-s 포함 + 초과분 소액)</td></tr>
+  </tbody>
+</table>
+<p class="sm">송신 레이트가 유일한 변수라 12 Hz→8 Hz 한 줄로 33% 절감 가능. 원격 차 품질은 Hermite 보간 덕에 8 Hz에서도 유지된다(필요시 A/B).</p>
+
+<h2><span class="no">7.0</span>구현 계획</h2>
+<h3>7.1 &nbsp;파일 단위</h3>
+<pre><span class="c"># 서버 (새 Worker 프로젝트)</span>
+workers/mp/wrangler.toml     DO 바인딩(ROOM, SQLite-backed) · --profile esc5221 배포
+workers/mp/src/index.js      라우팅: /room/&lt;id&gt; → DO · 헬스체크
+workers/mp/src/room.js       DO: hibernation 수락 · 로스터 · 바이너리 릴레이 · 랩 이벤트
+
+<span class="c"># 클라이언트</span>
+js/net.js        (NEW)  접속/재접속 · 인코딩/디코딩 · 지터버퍼+Hermite · 게이팅(6.2)
+                        방 상태머신(FREE/COUNTDOWN/RACING/RESULTS) · 채팅/레이스 이벤트
+js/remotecars.js (NEW)  원격 차 비주얼 풀 — ghost.js 메시 재활용 + 틴트 + 이름표 스프라이트
+js/mpui.js       (NEW)  카운트다운 오버레이(3·2·1·GO+비프) · 결과 보드 · 채팅 피드/입력(Enter)
+js/main.js       (MOD)  루프에 net.update(dt) · 랩/완주 이벤트 · 그리드 리셋+입력 잠금
+js/hud.js        (MOD)  세션 리더보드 · P2/4·LAP 1/3 표시
+js/menu.js·settings.js (MOD)  MULTIPLAYER 블록(방 만들기/코드 참가/링크 복사) + 닉네임(ns-nick)
+                        ?room= 쿼리 → 트랙/시드 자동 로드 + 자동 입장</pre>
+
+<h3>7.2 &nbsp;페이즈</h3>
+<table>
+  <thead><tr><th>페이즈</th><th>내용</th><th>완료 기준 (검증)</th></tr></thead>
+  <tbody>
+    <tr><td><strong>P1</strong> 방+프레즌스</td><td>방 만들기/코드/<code>?room=</code> 링크 · 원격 차 렌더+이름표 · 로스터 · 세션 리더보드 · 비용 게이팅(6.2) 전부</td><td>헤드리스 2개가 링크로 같은 방(랜덤트랙 시드 포함) 입장, 서로의 차 확인 · 혼자가 되면 송신 0 Hz</td></tr>
+    <tr><td><strong>P2</strong> 레이스 세션</td><td>호스트 RACE → 그리드 리셋 · 카운트다운(비프) · P/LAP HUD · 완주 수집 → 결과 보드 · 한판 더</td><td>두 클라 동시 출발(스큐 &lt;100 ms) → 완주 → 동일한 결과 보드</td></tr>
+    <tr><td><strong>P3</strong> 채팅+폴리시</td><td>채팅(Enter/퀵챗/피드) · 재접속 · 원격 차 LOD · [AI] 태그</td><td>모바일 실기기 fps 저하 &lt;10%</td></tr>
+    <tr><td><strong>P4</strong> (선택)</td><td>소프트 충돌 · 관전 카메라 · 영속 랭킹(KV)</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="no">8.0</span>위험 · 완화</h2>
+<table>
+  <thead><tr><th>위험</th><th>완화</th></tr></thead>
+  <tbody>
+    <tr><td>원격 차 렌더 비용 (모바일)</td><td>고스트식 경량 메시 + 동시 표시 8대 상한 + 거리 LOD</td></tr>
+    <tr><td>DO가 먼 리전에 배치 (첫 접속자 기준)</td><td>방별 배치라 같은 지역끼리는 자동으로 가까움. 필요시 P3에서 locationHint</td></tr>
+    <tr><td>레이스 시작 시계 스큐</td><td>수신시각 + RTT/2 보정 (±50 ms). 충돌 없고 각자 GO부터 랩 계측이라 공정성 영향 없음</td></tr>
+    <tr><td>호스트 이탈 중 레이스</td><td>레이스 상태는 DO가 소유 — 호스트가 나가도 진행/종료는 정상. 새 RACE 버튼만 최고참에게 승계</td></tr>
+    <tr><td>네트워크 장애가 게임을 막는 것</td><td><strong>불변식: 멀티는 애드온.</strong> 접속 실패·끊김은 조용히 재시도, 주행은 절대 블로킹하지 않음</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="no">A.0</span>개정 이력</h2>
+<table class="rev">
+  <thead><tr><th>Rev</th><th>변경</th><th>상태</th></tr></thead>
+  <tbody>
+    <tr><td>0.1</td><td>최초 초안 — 모드 결정 · 아키텍처 · 지연보정 · IA · 비용 설계 · 페이즈</td><td>대체됨</td></tr>
+    <tr><td>0.2</td><td>퍼블릭 로비 제거(링크 전용) · 채팅 추가 · 레이스 세션(카운트다운→결과 보드) 핵심 승격</td><td>검토용 초안</td></tr>
+  </tbody>
+</table>
+
+<footer>ADR-MP-001 · Rev 0.2 · drive-game · Cloudflare Workers + Durable Objects (esc5221)</footer>
+
+</div>
+</body>
+</html>
