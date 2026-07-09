@@ -103,10 +103,12 @@ class RemotePlayer {
 
 // ---- client ------------------------------------------------------------------
 export class MPClient {
-  constructor({ scene, trackId, randomSeed, carId, hud, grid }) {
+  constructor({ scene, trackId, randomSeed, carId, hud, grid, forceCar, forcePreset }) {
     this.scene = scene; this.trackId = trackId; this.randomSeed = randomSeed >>> 0;
     this.carId = carId; this.hud = hud;
     this.gridFn = grid || (() => {});     // (slot) => reset the car to its grid slot
+    this.forceCar = forceCar || (() => {});     // room-unified car (live setCar)
+    this.forcePreset = forcePreset || (() => {}); // room weather (live atmo apply)
     this.host = localStorage.getItem('ns-mp-host') || DEFAULT_HOST;
     this.ws = null; this.room = null; this.you = 0;
     this.players = new Map();            // idx -> RemotePlayer
@@ -166,10 +168,18 @@ export class MPClient {
       if (needTrack || needSeed) {
         localStorage.setItem('ns-track', meta.track);
         if (meta.track === 'random') localStorage.setItem('ns-random-seed', String(meta.seed >>> 0));
+        if (meta.car) localStorage.setItem('ns-car', meta.car);
+        if (meta.preset != null) localStorage.setItem('ns-preset', String(meta.preset));
         sessionStorage.setItem('ns-go', '1');
         location.reload();
         return;
       }
+      // same track: apply the room's world live — WEATHER FIRST, then the car, so the
+      // rebuilt CarVisual is constructed under the final environment map (building it
+      // first and then swapping the env left its cockpit materials holding a disposed
+      // texture — rendered as magenta).
+      if (meta.preset != null) this.forcePreset(meta.preset);
+      if (meta.car) { this.forceCar(meta.car); this.carId = meta.car; }
       this._connect(code);
     } catch (e) { this._status('서버 연결 실패'); }
   }
@@ -257,6 +267,7 @@ export class MPClient {
     const slot = Math.max(0, ids.indexOf(this.you));
     this.readySet.clear(); this.myReady = false;
     this.finishers = []; this.racing = false;
+    this._cdActive = true;               // hide the READY CTA through the countdown
     this._hideResults();
     this.gridFn(slot);                   // park the car on its grid slot (behind the line)
     this.inputLocked = true;
@@ -277,6 +288,7 @@ export class MPClient {
       this._beep(880, 0.4);
       this.inputLocked = false;
       this.racing = true;
+      this._cdActive = false;
       setTimeout(() => { ov.style.display = 'none'; ov.style.color = '#ffd24a'; }, 900);
     }
   }
@@ -300,6 +312,7 @@ export class MPClient {
     this.racing = false;                 // my race lap is done
     try { this.ws.send(JSON.stringify({ t: 'lap', ms: Math.round(ms) })); } catch (e) {}
     this._finish(this.you, Math.round(ms));
+    this._render();                      // READY CTA returns for the rematch
   }
 
   _finish(i, ms) {
@@ -348,9 +361,21 @@ export class MPClient {
       #mp-chip button { background:rgba(126,200,255,0.15); color:#cfe8ff; border:1px solid rgba(126,200,255,0.4);
         border-radius:6px; padding:3px 9px; font-size:12px; cursor:pointer; font-family:inherit; }
       #mp-chip button:active { background:rgba(126,200,255,0.35); }
-      #mp-chip button.rdy { background:rgba(126,224,168,0.18); border-color:rgba(126,224,168,0.55); color:#aef3c9; font-weight:700; }
-      #mp-chip button.rdy.on { background:#46c483; color:#07140e; }
       body.ns-view #mp-chip { display:none; }
+      #mp-cta { position:fixed; top:13vh; left:50%; transform:translateX(-50%); z-index:70;
+        display:none; pointer-events:auto; font-family:system-ui,sans-serif; }
+      #mp-cta button.big { font-size:19px; font-weight:800; letter-spacing:3px; color:#07140e;
+        background:linear-gradient(180deg,#7ee0a8,#46c483); border:none; border-radius:14px;
+        padding:15px 40px; cursor:pointer; font-family:inherit;
+        animation:mpPulse 2s ease-in-out infinite; }
+      #mp-cta button.big small { display:block; font-size:11px; font-weight:600; letter-spacing:1px;
+        color:rgba(7,20,14,0.65); margin-top:2px; }
+      @keyframes mpPulse {
+        0%,100% { box-shadow:0 0 0 0 rgba(126,224,168,0), 0 4px 22px rgba(70,196,131,0.35); }
+        50%     { box-shadow:0 0 0 8px rgba(126,224,168,0.14), 0 4px 30px rgba(70,196,131,0.55); } }
+      #mp-cta .wait { font-size:13px; font-weight:600; color:#aef3c9; background:rgba(8,14,22,0.72);
+        border:1px solid rgba(126,224,168,0.45); border-radius:999px; padding:9px 20px; }
+      body.ns-view #mp-cta { display:none !important; }
       #mp-cd { position:fixed; inset:0; z-index:90; display:none; align-items:center; justify-content:center;
         font-family:system-ui,sans-serif; font-size:min(34vw,190px); font-weight:800; color:#ffd24a;
         text-shadow:0 0 40px rgba(0,0,0,0.8); pointer-events:none; }
@@ -372,6 +397,9 @@ export class MPClient {
     this._cd = document.createElement('div');
     this._cd.id = 'mp-cd';
     document.body.appendChild(this._cd);
+    this._cta = document.createElement('div');
+    this._cta.id = 'mp-cta';
+    document.body.appendChild(this._cta);
     this._res = document.createElement('div');
     this._res.id = 'mp-res';
     document.body.appendChild(this._res);
@@ -392,12 +420,6 @@ export class MPClient {
     label.textContent = this.room;
     const n = document.createElement('span');
     n.textContent = (this.others + (this.connected ? 1 : 0)) + '명';
-    // READY: when everyone in the room is ready (2+), the server fires the countdown
-    const rdy = document.createElement('button');
-    rdy.className = 'rdy' + (this.myReady ? ' on' : '');
-    const total = this.others + (this.connected ? 1 : 0);
-    rdy.textContent = `READY ${this.readySet.size}/${total}`;
-    rdy.onclick = () => this.toggleReady();
     const copy = document.createElement('button');
     copy.textContent = '링크 복사';
     copy.onclick = () => {
@@ -407,6 +429,33 @@ export class MPClient {
     const out = document.createElement('button');
     out.textContent = '나가기';
     out.onclick = () => this.leave();
-    el.append(dot, label, n, rdy, copy, out);
+    el.append(dot, label, n, copy, out);
+    this._renderCta();
+  }
+
+  // READY call-to-action: big, centered, breathing — reads as "press this to race".
+  // Driving works without it, but the prompt stays up until you commit.
+  _renderCta() {
+    const el = this._cta;
+    if (!el) return;
+    const total = this.others + (this.connected ? 1 : 0);
+    const active = this.room && this.connected && this.others > 0 && !this._cdActive && !this.racing;
+    if (!active) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.innerHTML = '';
+    if (!this.myReady) {
+      const b = document.createElement('button');
+      b.className = 'big';
+      b.innerHTML = `▶ READY &nbsp;${this.readySet.size}/${total}<small>전원 준비되면 레이스 시작</small>`;
+      b.onclick = () => this.toggleReady();
+      el.appendChild(b);
+    } else {
+      const w = document.createElement('div');
+      w.className = 'wait';
+      w.textContent = `준비 완료 · 대기 중 ${this.readySet.size}/${total}  (다시 탭하면 취소)`;
+      w.style.cursor = 'pointer';
+      w.onclick = () => this.toggleReady();
+      el.appendChild(w);
+    }
   }
 }

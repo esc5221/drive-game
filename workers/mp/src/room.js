@@ -23,6 +23,8 @@ export class Room {
           await this.ctx.storage.put('meta', {
             track: String(b.track || 'practice').slice(0, 32),
             seed: (b.seed >>> 0) || 0,
+            car: b.car ? String(b.car).slice(0, 16) : null,       // null = everyone picks freely
+            preset: Number.isInteger(b.preset) ? Math.max(0, Math.min(5, b.preset)) : 0,  // weather is always room-owned (grip fairness)
           });
           return Response.json({ ok: true });
         }

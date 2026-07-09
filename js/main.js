@@ -810,6 +810,9 @@ if (MP_ON) {
         hud.lapStart = null;             // clock re-arms; crossing the line starts the lap
         if (watch) setWatch(false);      // no autopilot racing
       },
+      // room-owned world: unified car / weather applied live on join (no reload)
+      forceCar: id => { if (CARS[id] && id !== carId) { localStorage.setItem('ns-car', id); setCar(id); } },
+      forcePreset: i => { if (i !== atmo.idx) { atmo.apply(i); applyNight(); lsSet('ns-preset', String(i)); } },
     });
     mp.auto();
     window.__mp = mp;                    // debug / test handle

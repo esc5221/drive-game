@@ -3,6 +3,7 @@
 // roster fill up live over the same Room DO websocket, then "주행 시작" hands
 // off to the game page (/?room=CODE). The game reconnects with the same nick.
 import { TRACKS } from './tracks/index.js';
+import { CARS } from './cars.js';       // pure data — safe in the lobby (no Three.js)
 
 const HOST = localStorage.getItem('ns-mp-host') || 'https://drive-mp.esc5221.workers.dev';
 const $ = id => document.getElementById(id);
@@ -36,6 +37,42 @@ for (const t of TRACKS) {
   trackRow.appendChild(b);
 }
 
+// ---- car picker: 자유(각자) or a unified car for everyone -----------------------
+let selCar = null;                       // null = free choice
+{
+  const row = $('carrow');
+  const opts = [[null, '자유 (각자 선택)'], ...Object.values(CARS).filter(c => !c.hidden).map(c => [c.id, c.name])];
+  for (const [id, label] of opts) {
+    const b = document.createElement('button');
+    b.className = 'opt' + (id === selCar ? ' active' : '');
+    b.textContent = label;
+    b.onclick = () => {
+      selCar = id;
+      row.querySelectorAll('.opt').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+    };
+    row.appendChild(b);
+  }
+}
+
+// ---- weather picker: always room-owned (rain changes grip => must match) --------
+const WX = [[0, '☀️ 맑음'], [2, '🌅 석양'], [5, '🌙 밤'], [4, '🌧 비']];   // atmo preset indices
+let selWx = 0;
+{
+  const row = $('wxrow');
+  for (const [idx, label] of WX) {
+    const b = document.createElement('button');
+    b.className = 'opt' + (idx === selWx ? ' active' : '');
+    b.textContent = label;
+    b.onclick = () => {
+      selWx = idx;
+      row.querySelectorAll('.opt').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+    };
+    row.appendChild(b);
+  }
+}
+
 // ---- state -------------------------------------------------------------------
 let ws = null, room = null, meta = null, you = 0, roster = [];
 const err = m => { $('err').textContent = m || ''; };
@@ -44,6 +81,11 @@ function trackName(id) {
   const t = TRACKS.find(x => x.id === id);
   return t ? (t.random ? '랜덤 트랙' : t.name) : id;
 }
+function metaSummary(m) {
+  const car = m.car ? (CARS[m.car]?.name || m.car) + ' 통일' : '차량 자유';
+  const wx = (WX.find(w => w[0] === (m.preset ?? 0)) || WX[0])[1];
+  return `${trackName(m.track)}${m.track === 'random' ? ` #${m.seed >>> 0}` : ''} · ${car} · ${wx}`;
+}
 const tintCss = i => `hsl(${(i * 137.508) % 360}, 72%, 55%)`;
 
 // ---- screens -------------------------------------------------------------------
@@ -51,7 +93,7 @@ function showRoom() {
   $('s-entry').hidden = true;
   $('s-room').hidden = false;
   $('rc').textContent = room;
-  $('rt').textContent = trackName(meta.track) + (meta.track === 'random' ? ` #${meta.seed >>> 0}` : '');
+  $('rt').textContent = metaSummary(meta);
   renderRoster();
 }
 function showEntry() {
@@ -78,7 +120,7 @@ async function createRoom() {
   saveNick(); err('');
   $('create').disabled = true;
   try {
-    const body = { track: selTrack, seed: selTrack === 'random' ? seed : 0 };
+    const body = { track: selTrack, seed: selTrack === 'random' ? seed : 0, car: selCar, preset: selWx };
     const r = await fetch(HOST + '/create', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
@@ -128,9 +170,11 @@ function leaveRoom() {
 }
 
 function startDriving() {
-  // hand off to the game: align track+seed, skip the menu, keep the room in the URL
+  // hand off to the game: align the room's world (track+seed+car+weather), skip the menu
   localStorage.setItem('ns-track', meta.track);
   if (meta.track === 'random') localStorage.setItem('ns-random-seed', String(meta.seed >>> 0));
+  if (meta.car) localStorage.setItem('ns-car', meta.car);           // unified car -> forced
+  if (meta.preset != null) localStorage.setItem('ns-preset', String(meta.preset));
   sessionStorage.setItem('ns-go', '1');
   const code = room;
   const w = ws; ws = null; room = null;                // stop the reconnect loop
