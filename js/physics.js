@@ -264,11 +264,14 @@ export class Vehicle {
     // driven axle (the two wheels counter-rotate against each other) and slowly
     // walk the "stopped" car around. Releases the instant any pedal is touched.
     const parked = this.ctrl.throttle < 0.02 && this.ctrl.brake < 0.02 &&
-                   !this.ctrl.handbrake && this.gear !== -1 && Math.abs(vFwd) < 0.4;
+                   !this.ctrl.handbrake && this.gear !== -1 && Math.abs(vFwd) < 0.8;
 
-    // LSD on the driven axle (meaningless at a standstill — and unstable there)
+    // LSD on the driven axle. Faded out when neither driving torque nor real road
+    // speed needs it: the stiff explicit coupling limit-cycles at a near-standstill
+    // (the two wheels counter-rotate and walk the car), and an LSD has no job there.
     const dOmega = this.wheels[di].omega - this.wheels[di + 1].omega;
-    const tLsd = parked ? 0 : THREE.MathUtils.clamp(dOmega * 350, -1000, 1000);
+    const lsdNeed = Math.min(1, Math.abs(tAxle) / 400 + Math.abs(vFwd) / 1.5);
+    const tLsd = THREE.MathUtils.clamp(dOmega * 350, -1000, 1000) * (parked ? 0 : lsdNeed);
     const tDrive = this._tDrive;
     tDrive[0] = tDrive[1] = tDrive[2] = tDrive[3] = 0;
     tDrive[di] = tAxle / 2 - tLsd / 2;
@@ -366,19 +369,34 @@ export class Vehicle {
         let fx = mu * load * f * (sx / rho);
         let fy = -mu * load * f * (sy / rho);
 
-        // low speed: blend to viscous model so the car comes to rest cleanly
+        // rolling resistance — the real coast-down force the model was missing.
+        // Without it a freely-rolling car below the engine-braking band (<~4 km/h)
+        // glides indefinitely ("ice"). Kept SEPARATE from fx: fx feeds the wheel-spin
+        // reaction, and a negative reaction spins the wheel up (correct for tyre
+        // friction, wrong for rolling drag — folding it into fx made the wheels run
+        // ahead of the ground, i.e. a self-pushing car). Body-only force, faded near
+        // zero speed so it can never push a stopped car.
+        const fRoll = -Math.sign(vLong) * Math.min(1, Math.abs(vLong) / 0.6) * 0.013 * load;
+
+        // low speed: blend to a viscous model so the car comes to rest cleanly.
+        // With no pedal input the wheel is also SNAPPED to ground speed — this cuts
+        // every feedback loop (engine-brake chatter / LSD / tyre nonlinearity) that
+        // otherwise finds a self-sustaining crawl equilibrium near standstill.
         const vTot = Math.hypot(vLong, vLat);
         if (vTot < 1.2) {
           const b = vTot / 1.2;
           fy = fy * b - vLat * load * 0.9 * (1 - b);
-          if (Math.abs(w.omega) < 0.8 && this.ctrl.throttle < 0.05) fx = fx * b - vLong * load * 0.5 * (1 - b);
+          if (this.ctrl.throttle < 0.05 && this.ctrl.brake < 0.05 && !this.ctrl.handbrake) {
+            fx = fx * b - vLong * load * 0.5 * (1 - b);
+            w.omega += (vLong / w.radius - w.omega) * Math.min(1, dt * 30);   // roll with the ground
+          }
         }
 
-        force.addScaledVector(fwd, fx).addScaledVector(right, fy);
-        this._addTorque(torque, contactPt, fwd, fx);
+        force.addScaledVector(fwd, fx + fRoll).addScaledVector(right, fy);
+        this._addTorque(torque, contactPt, fwd, fx + fRoll);
         this._addTorque(torque, contactPt, right, fy);
 
-        // wheel spin with tire reaction
+        // wheel spin with tire reaction (tyre force only — rolling drag is body-level)
         this._spinWheel(w, tDrive[wi], tBrake[wi], fx, dt);
 
         // assists bookkeeping

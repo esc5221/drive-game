@@ -33,6 +33,10 @@ while(t<200){const r=track.query(v.pos.x,v.pos.z,q);if(!r)break;
   if(err>DE)u=cl((err-DE)*0.14,0,1);else if(err<-DE)u=cl((err+DE)*0.12,-1,0);else u=0;
   const cur=v.ctrl.throttle-v.ctrl.brake,rate=(u>cur?16:24)/240,cmd=cur+cl(u-cur,-rate,rate);
   v.ctrl.throttle=Math.max(0,cmd);v.ctrl.brake=Math.max(0,-cmd);v.ctrl.handbrake=false;
+  // launch / low-speed traction control — mirrors the live autopilot (main.js)
+  if(sp<60&&cmd>0){const a0=v.wheels[2],a1=v.wheels[3];const srR=(a0.contact&&a1.contact)?(a0.slipRatio+a1.slipRatio)/2:0;
+    if(srR>0.13)v.ctrl.throttle=Math.max(0,v.ctrl.throttle-0.15);else v.ctrl.throttle=Math.min(1,v.ctrl.throttle+0.02);
+    v.ctrl.brake=0;}
   v.step(DT);t+=DT;if(v.rollover){spun=true;break;}
   if(lap===2){steps++;if(!v.onTrack)o2++;}
   if(lap===0&&v.distAccum>5)lap=1;
