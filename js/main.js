@@ -645,6 +645,10 @@ function loop(now) {
     if (BENCH) autoDrive(vehicle, track, raceLine);   // deterministic load for measurement
     else if (watch) autopilot(vehicle);               // Watch mode: autonomous ideal-line drive
     else { input.update(dtReal, vehicle); autoReverse(); applyControls(); }
+    if (mp && mp.inputLocked) {                       // race countdown: hold on the grid
+      vehicle.ctrl.steer = 0; vehicle.ctrl.throttle = 0;
+      vehicle.ctrl.brake = 1; vehicle.ctrl.handbrake = true;
+    }
     acc += dtReal;
     let steps = 0;
     while (acc >= DT && steps < MAX_SUBSTEPS) {
@@ -653,7 +657,9 @@ function loop(now) {
       steps++;
     }
     if (vehicle.rollover) recoverToTrack('flip');   // stuck on side/roof -> respawn
+    const _lapsBefore = hud.lapCount;
     hud.update(vehicle, dtReal);
+    if (mp && hud.lapCount > _lapsBefore) mp.onLap(hud.lastLap, hud.lapValid);   // race finish hook
     ghost.update(dtReal, vehicle, hud.lapStart !== null ? hud.now() - hud.lapStart : null);
     raceLine.update(vehicle.trackS, Math.abs(vehicle.speed));
     audio.update(vehicle, dtReal);
@@ -795,8 +801,17 @@ let mp = null;
 const MP_ON = !IS_VIEW && !BENCH && new URLSearchParams(location.search).has('room');
 if (MP_ON) {
   import('./net.js').then(({ MPClient }) => {
-    mp = new MPClient({ scene, trackId, randomSeed, carId, hud });
-    mp.auto();                           // ?room=CODE joins; otherwise the chip offers "방 만들기"
+    mp = new MPClient({
+      scene, trackId, randomSeed, carId, hud,
+      // race grid: slot 0 sits just behind the start line, others staggered behind
+      grid: slot => {
+        const s = ((SPAWN_S - 10 - 9 * slot) % track.total + track.total) % track.total;
+        vehicle.reset(s);
+        hud.lapStart = null;             // clock re-arms; crossing the line starts the lap
+        if (watch) setWatch(false);      // no autopilot racing
+      },
+    });
+    mp.auto();
     window.__mp = mp;                    // debug / test handle
   }).catch(() => { /* multiplayer is an add-on — never block the game */ });
 }

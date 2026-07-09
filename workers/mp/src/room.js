@@ -61,7 +61,7 @@ export class Room {
   _roster() {
     return this.ctx.getWebSockets()
       .map(w => w.deserializeAttachment()).filter(Boolean)
-      .map(({ i, nick, car }) => ({ i, nick, car }));
+      .map(({ i, nick, car, ready }) => ({ i, nick, car, ready: !!ready }));
   }
 
   _broadcast(msg, except) {
@@ -80,6 +80,21 @@ export class Room {
       if (m.t === 'chat' || m.t === 'lap' || m.t === 'best') {
         m.i = att.i;
         this._broadcast(JSON.stringify(m), ws);
+        return;
+      }
+      if (m.t === 'ready') {                           // race: everyone ready -> countdown
+        att.ready = !!m.v;
+        ws.serializeAttachment(att);
+        this._broadcast(JSON.stringify({ t: 'ready', i: att.i, v: att.ready }), null);
+        const socks = this.ctx.getWebSockets();
+        const atts = socks.map(w => w.deserializeAttachment()).filter(Boolean);
+        if (atts.length >= 2 && atts.every(a => a.ready)) {
+          for (const w of socks) {                     // consume ready flags for the next round
+            const a = w.deserializeAttachment();
+            if (a) { a.ready = false; w.serializeAttachment(a); }
+          }
+          this._broadcast(JSON.stringify({ t: 'race', n: atts.length }), null);
+        }
       }
       return;
     }

@@ -103,15 +103,22 @@ class RemotePlayer {
 
 // ---- client ------------------------------------------------------------------
 export class MPClient {
-  constructor({ scene, trackId, randomSeed, carId, hud }) {
+  constructor({ scene, trackId, randomSeed, carId, hud, grid }) {
     this.scene = scene; this.trackId = trackId; this.randomSeed = randomSeed >>> 0;
     this.carId = carId; this.hud = hud;
+    this.gridFn = grid || (() => {});     // (slot) => reset the car to its grid slot
     this.host = localStorage.getItem('ns-mp-host') || DEFAULT_HOST;
     this.ws = null; this.room = null; this.you = 0;
     this.players = new Map();            // idx -> RemotePlayer
     this.seq = 0; this._acc = 0; this._ka = 0;
     this._retries = 0;
     this._buf = new ArrayBuffer(32);
+    // race session state (everyone READY -> countdown -> GO -> finish order)
+    this.readySet = new Set();           // player indices that pressed READY
+    this.myReady = false;
+    this.racing = false;                 // between GO and my finish
+    this.inputLocked = false;            // grid hold during the countdown
+    this.finishers = [];                 // [{i, nick, ms}] in arrival order
     this._ui();
   }
 
@@ -200,7 +207,10 @@ export class MPClient {
       let m; try { m = JSON.parse(data); } catch (e) { return; }
       if (m.t === 'hello') {
         this.you = m.you;
-        for (const p of m.roster) if (p.i !== this.you) this._add(p);
+        for (const p of m.roster) {
+          if (p.i !== this.you) this._add(p);
+          if (p.ready) this.readySet.add(p.i);
+        }
         this._render();
       } else if (m.t === 'join') {
         this._add(m.p);
@@ -208,8 +218,17 @@ export class MPClient {
         this._render();
       } else if (m.t === 'leave') {
         const p = this.players.get(m.i);
+        this.readySet.delete(m.i);
         if (p) { if (this.hud) this.hud.flash(p.nick + ' 퇴장', '#8aa0b6'); p.dispose(); this.players.delete(m.i); }
         this._render();
+      } else if (m.t === 'ready') {
+        if (m.v) this.readySet.add(m.i); else this.readySet.delete(m.i);
+        if (m.i === this.you) this.myReady = m.v;
+        this._render();
+      } else if (m.t === 'race') {
+        this._startRace();
+      } else if (m.t === 'lap') {
+        this._finish(m.i, m.ms);
       }
       return;
     }
@@ -223,6 +242,84 @@ export class MPClient {
     if (this.players.has(p.i)) return;
     this.players.set(p.i, new RemotePlayer(this.scene, p.i, p.nick));
   }
+
+  // ---- race session -----------------------------------------------------------
+  toggleReady() {
+    if (!this.connected) return;
+    this.myReady = !this.myReady;
+    try { this.ws.send(JSON.stringify({ t: 'ready', v: this.myReady })); } catch (e) {}
+    this._render();
+  }
+
+  _startRace() {
+    // grid slot = my rank among all indices (deterministic, same on every client)
+    const ids = [this.you, ...this.players.keys()].sort((a, b) => a - b);
+    const slot = Math.max(0, ids.indexOf(this.you));
+    this.readySet.clear(); this.myReady = false;
+    this.finishers = []; this.racing = false;
+    this._hideResults();
+    this.gridFn(slot);                   // park the car on its grid slot (behind the line)
+    this.inputLocked = true;
+    this._countdown(3);
+    this._render();
+  }
+
+  _countdown(n) {
+    const ov = this._cd;
+    ov.style.display = 'flex';
+    if (n > 0) {
+      ov.textContent = n;
+      this._beep(440, 0.12);
+      setTimeout(() => this._countdown(n - 1), 1000);
+    } else {
+      ov.textContent = 'GO!';
+      ov.style.color = '#7ee0a8';
+      this._beep(880, 0.4);
+      this.inputLocked = false;
+      this.racing = true;
+      setTimeout(() => { ov.style.display = 'none'; ov.style.color = '#ffd24a'; }, 900);
+    }
+  }
+
+  _beep(freq, dur) {
+    try {
+      const ctx = this._actx || (this._actx = new (window.AudioContext || window.webkitAudioContext)());
+      if (ctx.state === 'suspended') ctx.resume();
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = freq; o.type = 'square';
+      g.gain.setValueAtTime(0.12, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+      o.connect(g).connect(ctx.destination);
+      o.start(); o.stop(ctx.currentTime + dur);
+    } catch (e) { /* no audio — fine */ }
+  }
+
+  // called from the game loop when a lap completes (main.js watches hud.lapCount)
+  onLap(ms, valid) {
+    if (!this.racing || !this.connected) return;
+    this.racing = false;                 // my race lap is done
+    try { this.ws.send(JSON.stringify({ t: 'lap', ms: Math.round(ms) })); } catch (e) {}
+    this._finish(this.you, Math.round(ms));
+  }
+
+  _finish(i, ms) {
+    if (this.finishers.some(f => f.i === i)) return;
+    const nick = i === this.you ? '나' : (this.players.get(i)?.nick || '?');
+    this.finishers.push({ i, nick, ms });
+    this._showResults();
+  }
+
+  _showResults() {
+    const el = this._res;
+    const fmt = ms => { const s = ms / 1000; return `${Math.floor(s / 60)}:${(s % 60).toFixed(3).padStart(6, '0')}`; };
+    el.innerHTML = '<div class="mp-res-title">RACE RESULT</div>' + this.finishers.map((f, k) =>
+      `<div class="mp-res-row${f.i === this.you ? ' me' : ''}"><b>${k + 1}</b><span>${f.nick}</span><i>${fmt(f.ms)}</i></div>`).join('') +
+      '<div class="mp-res-hint">READY를 누르면 다음 판</div>';
+    el.style.display = 'block';
+    clearTimeout(this._resT);
+    this._resT = setTimeout(() => this._hideResults(), 20000);
+  }
+  _hideResults() { if (this._res) this._res.style.display = 'none'; }
 
   // called every frame from the game loop
   update(dt, vehicle, paused) {
@@ -251,12 +348,33 @@ export class MPClient {
       #mp-chip button { background:rgba(126,200,255,0.15); color:#cfe8ff; border:1px solid rgba(126,200,255,0.4);
         border-radius:6px; padding:3px 9px; font-size:12px; cursor:pointer; font-family:inherit; }
       #mp-chip button:active { background:rgba(126,200,255,0.35); }
-      body.ns-view #mp-chip { display:none; }`;
+      #mp-chip button.rdy { background:rgba(126,224,168,0.18); border-color:rgba(126,224,168,0.55); color:#aef3c9; font-weight:700; }
+      #mp-chip button.rdy.on { background:#46c483; color:#07140e; }
+      body.ns-view #mp-chip { display:none; }
+      #mp-cd { position:fixed; inset:0; z-index:90; display:none; align-items:center; justify-content:center;
+        font-family:system-ui,sans-serif; font-size:min(34vw,190px); font-weight:800; color:#ffd24a;
+        text-shadow:0 0 40px rgba(0,0,0,0.8); pointer-events:none; }
+      #mp-res { position:fixed; top:14%; left:50%; transform:translateX(-50%); z-index:85; display:none;
+        min-width:min(340px,86vw); background:rgba(6,12,20,0.92); border:1px solid rgba(126,200,255,0.4);
+        border-radius:13px; padding:16px 20px; font-family:system-ui,sans-serif; color:#dfe4ea; }
+      .mp-res-title { font-size:13px; letter-spacing:3px; color:#7ec8ff; font-weight:700; margin-bottom:10px; text-align:center; }
+      .mp-res-row { display:flex; gap:12px; align-items:baseline; padding:6px 2px; border-bottom:1px solid rgba(255,255,255,0.08); font-size:15px; }
+      .mp-res-row b { color:#ffd24a; width:20px; }
+      .mp-res-row span { flex:1; }
+      .mp-res-row i { font-style:normal; font-family:ui-monospace,monospace; }
+      .mp-res-row.me { background:rgba(126,200,255,0.10); border-radius:6px; }
+      .mp-res-hint { margin-top:10px; font-size:11.5px; color:#8aa0b6; text-align:center; }`;
     document.head.appendChild(st);
     const el = document.createElement('div');
     el.id = 'mp-chip';
     document.body.appendChild(el);
     this._chip = el;
+    this._cd = document.createElement('div');
+    this._cd.id = 'mp-cd';
+    document.body.appendChild(this._cd);
+    this._res = document.createElement('div');
+    this._res.id = 'mp-res';
+    document.body.appendChild(this._res);
     this._render();
   }
   _status(msg) { if (this.hud) this.hud.flash(msg, '#ff9a66'); }
@@ -274,6 +392,12 @@ export class MPClient {
     label.textContent = this.room;
     const n = document.createElement('span');
     n.textContent = (this.others + (this.connected ? 1 : 0)) + '명';
+    // READY: when everyone in the room is ready (2+), the server fires the countdown
+    const rdy = document.createElement('button');
+    rdy.className = 'rdy' + (this.myReady ? ' on' : '');
+    const total = this.others + (this.connected ? 1 : 0);
+    rdy.textContent = `READY ${this.readySet.size}/${total}`;
+    rdy.onclick = () => this.toggleReady();
     const copy = document.createElement('button');
     copy.textContent = '링크 복사';
     copy.onclick = () => {
@@ -283,6 +407,6 @@ export class MPClient {
     const out = document.createElement('button');
     out.textContent = '나가기';
     out.onclick = () => this.leave();
-    el.append(dot, label, n, copy, out);
+    el.append(dot, label, n, rdy, copy, out);
   }
 }
