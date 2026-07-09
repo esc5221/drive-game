@@ -100,6 +100,7 @@ export class Vehicle {
     this.slipFront = 0; this.slipRear = 0;
     this._flipTime = 0; this.rollover = false;   // sustained inverted -> auto-recover
     this._manualHold = 0;   // manual gear change -> hold auto-shift off briefly
+    this._parkHeld = false; this._parkX = 0; this._parkZ = 0;   // standstill sleep anchor
 
     // scratch pool — every per-step temp reuses one of these so the 240 Hz hot
     // path allocates nothing (no GC jank). f/p/r/v/t1..t3/q are general temps;
@@ -142,6 +143,7 @@ export class Vehicle {
     for (const w of this.wheels) { w.omega = 0; w.comp = 0; w.prevComp = 0; }
     this._flipTime = 0; this.rollover = false;
     this._manualHold = 0;
+    this._parkHeld = false;                       // sleep anchor must not survive a teleport
     const q = this.track.query(p.x, p.z, {});
     if (q) { this.trackS = q.s; this._prevS = q.s; }
   }
@@ -257,8 +259,16 @@ export class Vehicle {
     }
 
     // LSD on the driven axle
+    // standstill hold: with no pedal input at (near) rest, park the drivetrain.
+    // Without it, LSD + tyre feedback at tiny wheel speeds can limit-cycle the
+    // driven axle (the two wheels counter-rotate against each other) and slowly
+    // walk the "stopped" car around. Releases the instant any pedal is touched.
+    const parked = this.ctrl.throttle < 0.02 && this.ctrl.brake < 0.02 &&
+                   !this.ctrl.handbrake && this.gear !== -1 && Math.abs(vFwd) < 0.4;
+
+    // LSD on the driven axle (meaningless at a standstill — and unstable there)
     const dOmega = this.wheels[di].omega - this.wheels[di + 1].omega;
-    const tLsd = THREE.MathUtils.clamp(dOmega * 350, -1000, 1000);
+    const tLsd = parked ? 0 : THREE.MathUtils.clamp(dOmega * 350, -1000, 1000);
     const tDrive = this._tDrive;
     tDrive[0] = tDrive[1] = tDrive[2] = tDrive[3] = 0;
     tDrive[di] = tAxle / 2 - tLsd / 2;
@@ -271,6 +281,7 @@ export class Vehicle {
     tBrake[0] = brakeT * bias; tBrake[1] = brakeT * bias;
     tBrake[2] = brakeT * (1 - bias); tBrake[3] = brakeT * (1 - bias);
     if (this.ctrl.handbrake) { tBrake[2] += 3000; tBrake[3] += 3000; }
+    if (parked) { tBrake[0] += 900; tBrake[1] += 900; tBrake[2] += 900; tBrake[3] += 900; }  // auto-hold
 
     // ---- per wheel: suspension + tire
     let tcWorst = 0, absActive = false;
@@ -453,6 +464,17 @@ export class Vehicle {
 
     const vMag = this.vel.length();
     if (vMag > 130) this.vel.multiplyScalar(130 / vMag);   // 468 km/h sanity cap
+    // static friction / sleep for the parked car: the wheel hold stops the axle
+    // limit-cycle, but the settled body is slightly pitched, so the suspension has a
+    // constant horizontal force component that balances tyre drag at a ~2 cm/s creep —
+    // damping alone can't remove a steady force. Anchor the horizontal position
+    // instead (physics-engine "sleeping"); vertical stays live so the suspension
+    // breathes, and any pedal input releases it instantly.
+    if (parked && contactCount > 0 && vMag < 0.25) {
+      if (!this._parkHeld) { this._parkHeld = true; this._parkX = this.pos.x; this._parkZ = this.pos.z; }
+      this.vel.x = 0; this.vel.z = 0;
+      this.pos.x = this._parkX; this.pos.z = this._parkZ;
+    } else this._parkHeld = false;
     this.pos.addScaledVector(this.vel, dt);
     const om = this.angVel;
     const dq = S.dq.set(om.x * dt / 2, om.y * dt / 2, om.z * dt / 2, 0).multiply(this.quat);
