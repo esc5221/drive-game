@@ -168,10 +168,14 @@ if (carId) {
   });
 }
 
-// slow turntable if &turn=1
+// slow turntable if &turn=1 · rolling wheels if &spin=1 (rad/s via value)
 const turn = q.get('turn') === '1';
+const spinRate = +(q.get('spin') || 0);
 renderer.setAnimationLoop(t => {
   if (turn) subject.rotation.y = t / 4000;
+  if (ready && spinRate && window.__vis && window.__vis.wheelMeshes) {
+    for (const g of window.__vis.wheelMeshes) g.userData.spin.rotation.x = -(t / 1000) * spinRate;
+  }
   renderer.render(scene, camera);
   if (ready) window.__ready = true;     // capture scripts wait on this
 });

@@ -21,7 +21,7 @@ function gltfLoader() {
 // split a mesh into the half whose triangles lie on one side of x=0 (world),
 // baked into world space and re-centred on `centre` — used to separate the
 // left/right wheels that ship as a single axle mesh in the 911 model.
-function halfMeshGeometry(mesh, sgn, centre) {
+function halfMeshGeometry(mesh, sgn, centre, qFix) {
   const src = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
   const p = src.attributes.position, n = src.attributes.normal;
   const v = new THREE.Vector3(), nm = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
@@ -32,8 +32,10 @@ function halfMeshGeometry(mesh, sgn, centre) {
     if ((cx / 3) * sgn <= 0.02) continue;
     for (let k = 0; k < 3; k++) {
       v.fromBufferAttribute(p, t + k).applyMatrix4(mesh.matrixWorld).sub(centre);
+      if (qFix) v.applyQuaternion(qFix);
       pos.push(v.x, v.y, v.z);
       v.fromBufferAttribute(n, t + k).applyMatrix3(nm).normalize();
+      if (qFix) v.applyQuaternion(qFix);
       nor.push(v.x, v.y, v.z);
     }
   }
@@ -42,6 +44,38 @@ function halfMeshGeometry(mesh, sgn, centre) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   return geo;
+}
+
+// true spin axis of a (possibly cambered/toed) wheel: the direction of least
+// variance of the rim's vertices — smallest-eigenvector of their covariance,
+// found by power-iterating (trace·I − C).
+function wheelAxis(meshes, sgn, centre) {
+  const v = new THREE.Vector3();
+  const C = [0, 0, 0, 0, 0, 0];                      // xx, yy, zz, xy, xz, yz
+  let cnt = 0;
+  for (const mesh of meshes) {
+    const p = mesh.geometry.attributes.position;
+    for (let i = 0; i < p.count; i += 3) {
+      v.fromBufferAttribute(p, i).applyMatrix4(mesh.matrixWorld);
+      if (v.x * sgn <= 0.02) continue;
+      v.sub(centre);
+      C[0] += v.x * v.x; C[1] += v.y * v.y; C[2] += v.z * v.z;
+      C[3] += v.x * v.y; C[4] += v.x * v.z; C[5] += v.y * v.z;
+      cnt++;
+    }
+  }
+  if (cnt < 24) return null;
+  for (let i = 0; i < 6; i++) C[i] /= cnt;
+  const tr = C[0] + C[1] + C[2];
+  const B = [tr - C[0], -C[3], -C[4], -C[3], tr - C[1], -C[5], -C[4], -C[5], tr - C[2]];
+  let a = new THREE.Vector3(1, 0.1, 0.1).normalize();
+  for (let it = 0; it < 40; it++) {
+    a.set(B[0] * a.x + B[1] * a.y + B[2] * a.z,
+          B[3] * a.x + B[4] * a.y + B[5] * a.z,
+          B[6] * a.x + B[7] * a.y + B[8] * a.z).normalize();
+  }
+  if (a.x < 0) a.negate();
+  return a;
 }
 
 function dialTexture(label, maxVal, major, redFrom) {
@@ -364,9 +398,10 @@ export class CarVisual {
         if (!node) continue;
         const parts = node.children.filter(c => c.isMesh);
         for (const sgn of [-1, 1]) {
-          // union bbox of this side -> single wheel centre shared by all parts
+          // wheel centre from the round parts only (the off-axis caliper would bias it)
           const box = new THREE.Box3(); const v = new THREE.Vector3();
-          for (const mesh of parts) {
+          const roundParts = parts.filter(m => m.material.name !== M.caliper);
+          for (const mesh of roundParts) {
             const p = mesh.geometry.attributes.position;
             for (let i = 0; i < p.count; i++) {
               v.fromBufferAttribute(p, i).applyMatrix4(mesh.matrixWorld);
@@ -375,6 +410,11 @@ export class CarVisual {
           }
           if (box.isEmpty()) continue;
           const centre = box.getCenter(new THREE.Vector3());
+          // the model bakes camber/toe into the wheels — spinning around raw x wobbles.
+          // Fit the TRUE axle axis from the rim vertices and align it to x.
+          const rimParts = parts.filter(m => (M.spin || ['silver']).includes(m.material.name));
+          const axis = wheelAxis(rimParts.length ? rimParts : roundParts, sgn, centre);
+          const qFix = axis ? new THREE.Quaternion().setFromUnitVectors(axis, new THREE.Vector3(1, 0, 0)) : null;
           const wi = base + (sgn < 0 ? 0 : 1);     // wheel order: FL, FR, RL, RR
           // visual wheel x follows the MODEL's fenders (physics track is wider —
           // wheels poking out of the arches read broken; 10 cm is imperceptible)
@@ -385,11 +425,16 @@ export class CarVisual {
           grp.add(spin);
           grp.userData.spin = spin;
           for (const mesh of parts) {
-            const geo = halfMeshGeometry(mesh, sgn, centre);
+            const geo = halfMeshGeometry(mesh, sgn, centre, qFix);
             if (!geo) continue;
             const part = new THREE.Mesh(geo, mesh.material);
             part.castShadow = true;
-            (mesh.material.name === M.caliper ? grp : spin).add(part);   // calipers don't spin
+            // ONLY the rim spins. The tyre bakes a parked contact flat-spot and the
+            // 'plastic' prim contains non-circular wheel-tub/duct bits — spinning
+            // either reads lumpy. Rotationally-symmetric black parts look identical
+            // static, and the flat spot stays squashed against the road.
+            const spins = (M.spin || ['silver']).includes(mesh.material.name);
+            (spins ? spin : grp).add(part);
           }
           grp.scale.setScalar(W.radius / (M.wheelR || W.radius));
         }
