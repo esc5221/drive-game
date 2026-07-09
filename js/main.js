@@ -787,13 +787,14 @@ window.__CarAudio = audio.constructor;   // debug / test handle (isolated audio)
 window.__raceLine = raceLine;            // ideal-lap harness reads offsets/vAllowed
 window.__input = input;                  // debug / test handle (control mode)
 
-// ---- multiplayer (link-only, /mp URL gated — the home page ships none of it) ----
-// enabled only at /mp, with ?room= (invite link), or ?mp=1 (local dev preview)
+// ---- multiplayer (link-only — the home page ships none of it) --------------------
+// The lobby lives at /mp (mp.html via Pages pretty URLs); the game side activates
+// only with ?room=. An early deploy 301'd /mp -> /?mp=1 and browsers cache 301s
+// permanently, so rescue those visitors by forwarding them to the lobby.
+const _q = new URLSearchParams(location.search);
+if (_q.has('mp') && !_q.has('room')) location.replace('./mp.html');
 let mp = null;
-const MP_ON = !IS_VIEW && !BENCH && (
-  /\/mp\/?$/.test(location.pathname) ||
-  new URLSearchParams(location.search).has('room') ||
-  new URLSearchParams(location.search).has('mp'));
+const MP_ON = !IS_VIEW && !BENCH && _q.has('room');
 if (MP_ON) {
   import('./net.js').then(({ MPClient }) => {
     mp = new MPClient({ scene, trackId, randomSeed, carId, hud });
