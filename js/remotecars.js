@@ -1,6 +1,11 @@
-// Remote player cars — lightweight tinted boxes (ghost-style, cheap enough for
-// mobile) with a billboard name tag. One entry per remote player, pooled.
+// Remote player cars. Each remote player renders as their ACTUAL car: the
+// shared GLB exterior kit (car.js buildExteriorKit) mounted statically at the
+// rest pose, wheels spun from the network velocity and steered from the
+// transmitted steer byte. A tinted box stands in while the model loads (and
+// stays for cars without a GLB — kart/F1).
 import * as THREE from 'three';
+import { CARS } from './cars.js';
+import { buildExteriorKit } from './car.js';
 
 function tint(i) {                                     // stable distinct hue per player index
   const h = (i * 137.508) % 360;
@@ -24,7 +29,7 @@ function nameSprite(text, color) {
 }
 
 export class RemoteCar {
-  constructor(scene, idx, nick) {
+  constructor(scene, idx, nick, carId) {
     this.scene = scene;
     const color = tint(idx);
     const g = new THREE.Group();
@@ -33,21 +38,82 @@ export class RemoteCar {
     body.position.y = 0.28;
     const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.44, 1.9), mat);
     cabin.position.set(0, 0.74, 0.15);
-    g.add(body, cabin, nameSprite(nick, color));
+    this.box = new THREE.Group();
+    this.box.add(body, cabin);
+    g.add(this.box, nameSprite(nick, color));
     g.visible = false;
     scene.add(g);
     this.mesh = g;
     this.mat = mat;
+    this._spinAngle = 0;
+    this._holders = [];                  // per-wheel steer groups (fronts turn)
+
+    // real exterior (async) — same kit the local CarVisual uses
+    const spec = CARS[carId];
+    if (spec && spec.visual && spec.visual.model) {
+      buildExteriorKit(spec, kit => {
+        if (this._dead) return;
+        const W = spec.wheels, y = kit.staticWheelY;
+        const posXZ = [[-W.htF, W.fz], [W.htF, W.fz], [-W.htR, W.rz], [W.htR, W.rz]];
+        const model = new THREE.Group();
+        model.add(kit.wrap);
+        kit.wheels.forEach((wg, i) => {
+          if (!wg) return;
+          const holder = new THREE.Group();          // steer here, spin inside
+          holder.position.set(kit.wheelXFix[i] ?? posXZ[i][0], y, posXZ[i][1]);
+          holder.add(wg);
+          model.add(holder);
+          this._holders[i] = holder;
+        });
+        this.mesh.remove(this.box);
+        this.box.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+        this.box = null;
+        this.mesh.add(model);
+        this.model = model;
+        this.lightsMat = kit.headlightMat;
+        this.wheelR = W.radius;
+      });
+    }
   }
+
   set(pos, quat) {
     this.mesh.position.copy(pos);
     this.mesh.quaternion.copy(quat);
     this.mesh.visible = true;
   }
-  fade(f) { this.mat.opacity = 0.88 * f; }             // dead-reckoning fade-out
+
+  // wheel spin from network speed, front steer, brake-light pulse
+  drive(speed, steer, brake, dt) {
+    if (!this.model) return;
+    this._spinAngle += (speed / (this.wheelR || 0.33)) * dt;
+    for (let i = 0; i < 4; i++) {
+      const h = this._holders[i];
+      if (!h) continue;
+      if (i < 2) h.rotation.y = -steer * 0.42;       // ~24° visual lock
+      h.children[0].userData.spin.rotation.x = -this._spinAngle;
+    }
+    if (this.lightsMat) this.lightsMat.emissiveIntensity = brake > 0.25 ? 2.8 : 0.5;
+  }
+
+  fade(f) {
+    // box fallback dims; the model just drops out at the end of dead reckoning
+    if (this.mat) this.mat.opacity = 0.88 * f;
+    if (this.model) this.model.visible = f > 0.05;
+  }
+
   hide() { this.mesh.visible = false; }
+
   dispose() {
+    this._dead = true;
     this.scene.remove(this.mesh);
-    this.mesh.traverse(o => { if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } if (o.geometry) o.geometry.dispose(); });
+    this.mesh.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          if (m.map) m.map.dispose();
+          m.dispose();
+        }
+      }
+    });
   }
 }

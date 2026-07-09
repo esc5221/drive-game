@@ -78,6 +78,144 @@ function wheelAxis(meshes, sgn, centre) {
   return a;
 }
 
+// ---- shared GLB exterior kit -------------------------------------------------
+// Loads spec.visual.model and builds a DETACHED, physics-free kit:
+//   { wrap, wheels: [4 × Group with userData.spin], wheelXFix, headlightMat }
+// The wrap is pre-positioned so that a wheel group placed at the physics rest
+// pose (attachY - restLen + 0.08) lines up with the model's arches. Used by
+// CarVisual (mounted into the physics wheel groups) and by the multiplayer
+// remote cars (mounted statically, spun from the network state).
+export function buildExteriorKit(spec, cb) {
+  const V = spec.visual, M = V.model, W = spec.wheels;
+  const staticWheelY = W.attachY - W.restLen + 0.08;
+  gltfLoader().load(M.src, g => {
+    const root = g.scene;
+    const junk = [];
+    root.traverse(o => { if (o.isLight || /^Hemi/.test(o.name || '')) junk.push(o); });
+    junk.forEach(o => o.parent && o.parent.remove(o));
+
+    // materials: paint recolour + headlight emissive hook
+    let headlightMat = null;
+    root.traverse(o => {
+      if (!o.isMesh) return;
+      o.castShadow = true;
+      const m = o.material;
+      if (!m) return;
+      // transmissive glass forces three into an extra whole-scene render pass —
+      // swap it for plain dark glass (reads the same at game distances)
+      if (m.transmission > 0) {
+        o.material = new THREE.MeshStandardMaterial({
+          name: m.name, color: 0x10151c, metalness: 0.5, roughness: 0.12,
+          envMapIntensity: 1.2,
+        });
+        return;
+      }
+      if (m.name === M.paint) {
+        m.color.set(V.color);
+        m.clearcoat = 1.0; m.clearcoatRoughness = 0.06; m.envMapIntensity = 1.1;
+      }
+      if (m.name === (M.lights || 'lights')) {
+        headlightMat = m;
+        m.emissiveIntensity = 0.5;
+      }
+    });
+
+    const wrap = new THREE.Group();
+    wrap.rotation.y = Math.PI;                   // model +z forward -> game -z forward
+    if (M.scale) wrap.scale.setScalar(M.scale);  // fbx exports often land at 1/100
+    wrap.add(root);
+    wrap.updateWorldMatrix(true, true);
+
+    const wheels = [null, null, null, null];     // FL, FR, RL, RR
+    const wheelXFix = [];
+    const wheelScale = W.radius / (M.wheelR || W.radius);
+    const newWheel = (wi) => {
+      const wg = new THREE.Group();
+      const spin = new THREE.Group();
+      wg.add(spin);
+      wg.userData.spin = spin;
+      wg.scale.setScalar(wheelScale);
+      wheels[wi] = wg;
+      return { wg, spin };
+    };
+
+    if (M.wheelTag) {
+      // per-corner wheel nodes: each wheel mesh pivoted at its own centre with
+      // the corner placement lost in conversion. Bake the world transform; the
+      // whole wheel spins; calipers ride the non-spinning group (their vertices
+      // are already wheel-centre-relative).
+      const bake = (mesh) => {
+        const geo = (mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone());
+        geo.applyMatrix4(mesh.matrixWorld);
+        const pivot = mesh.getWorldPosition(new THREE.Vector3());
+        geo.translate(-pivot.x, -pivot.y, -pivot.z);
+        return geo;
+      };
+      for (const [tag, wi] of Object.entries(M.wheelNodes || { LF: 0, RF: 1, LR: 2, RR: 3 })) {
+        const { wg, spin } = newWheel(wi);
+        root.traverse(o => {
+          if (!o.isMesh || !o.name) return;
+          const isWheel = o.name.includes(M.wheelTag + tag);
+          const isCal = M.caliperTag && o.name.includes(M.caliperTag + tag);
+          if (!isWheel && !isCal) return;
+          const part = new THREE.Mesh(bake(o), o.material);
+          part.castShadow = true;
+          (isWheel ? spin : wg).add(part);
+          o.visible = false;
+        });
+      }
+    } else {
+      // axle nodes: each axle ships as ONE mesh containing both wheels — split
+      // by world-x sign (model space AFTER the flip), re-centre.
+      for (const [nodeName, base] of [[M.axleFront, 0], [M.axleRear, 2]]) {
+        const node = root.getObjectByName(nodeName);
+        if (!node) continue;
+        const parts = node.children.filter(c => c.isMesh);
+        for (const sgn of [-1, 1]) {
+          // wheel centre from the round parts only (the off-axis caliper would bias it)
+          const box = new THREE.Box3(); const v = new THREE.Vector3();
+          const roundParts = parts.filter(m => m.material.name !== M.caliper);
+          for (const mesh of roundParts) {
+            const p = mesh.geometry.attributes.position;
+            for (let i = 0; i < p.count; i++) {
+              v.fromBufferAttribute(p, i).applyMatrix4(mesh.matrixWorld);
+              if (v.x * sgn > 0.02) box.expandByPoint(v);
+            }
+          }
+          if (box.isEmpty()) continue;
+          const centre = box.getCenter(new THREE.Vector3());
+          // the model bakes camber/toe into the wheels — spinning around raw x
+          // wobbles. Fit the TRUE axle axis from the rim and align it to x.
+          const rimParts = parts.filter(m => (M.spin || ['silver']).includes(m.material.name));
+          const axis = wheelAxis(rimParts.length ? rimParts : roundParts, sgn, centre);
+          const qFix = axis ? new THREE.Quaternion().setFromUnitVectors(axis, new THREE.Vector3(1, 0, 0)) : null;
+          const wi = base + (sgn < 0 ? 0 : 1);   // wheel order: FL, FR, RL, RR
+          // visual wheel x follows the MODEL's fenders (physics track is wider —
+          // wheels poking out of the arches read broken; 10 cm is imperceptible)
+          wheelXFix[wi] = centre.x;
+          const { wg, spin } = newWheel(wi);
+          for (const mesh of parts) {
+            const geo = halfMeshGeometry(mesh, sgn, centre, qFix);
+            if (!geo) continue;
+            const part = new THREE.Mesh(geo, mesh.material);
+            part.castShadow = true;
+            // ONLY the rim spins. The tyre bakes a parked contact flat-spot and
+            // the 'plastic' prim has non-round wheel-tub bits — spinning either
+            // reads lumpy; symmetric black parts look identical static.
+            const spins = (M.spin || ['silver']).includes(mesh.material.name);
+            (spins ? spin : wg).add(part);
+          }
+        }
+        node.visible = false;
+      }
+    }
+
+    // body placement: align wheel centres to the physics rest pose
+    wrap.position.set(0, staticWheelY - M.wheelY, M.dz || 0);
+    cb({ wrap, wheels, wheelXFix, headlightMat, staticWheelY });
+  });
+}
+
 function dialTexture(label, maxVal, major, redFrom) {
   const S = 256;
   const c = document.createElement('canvas'); c.width = c.height = S;
@@ -356,142 +494,23 @@ export class CarVisual {
   }
 
   // ---- real GLB exterior (spec.visual.model) ---------------------------------
-  // Loads the model async (placeholder wheels drive immediately), recolours the
-  // paint material, wires the headlight material, and rebinds the model's wheels
-  // to the physics: each axle ships as ONE mesh containing both wheels, so it is
-  // split by world-x sign, re-centred, and mounted into the 4 wheel groups.
+  // Loads the kit async (placeholder wheels drive immediately) and mounts the
+  // detached wheel groups into the physics wheel groups.
   _buildModelExterior() {
-    const V = this.spec.visual, M = V.model, W = this.spec.wheels;
     this._buildWheels(0.30);                       // physics-driven placeholders
-    const staticWheelY = W.attachY - W.restLen + 0.08;   // where update() parks a settled wheel
-    gltfLoader().load(M.src, g => {
+    buildExteriorKit(this.spec, kit => {
       if (this._modelDead) return;
-      const root = g.scene;
-      const junk = [];
-      root.traverse(o => { if (o.isLight || /^Hemi/.test(o.name || '')) junk.push(o); });
-      junk.forEach(o => o.parent && o.parent.remove(o));
-
-      // materials: paint recolour + headlight emissive hook
-      root.traverse(o => {
-        if (!o.isMesh) return;
-        o.castShadow = true;
-        const m = o.material;
-        if (!m) return;
-        // transmissive glass forces three into an extra whole-scene render pass —
-        // swap it for plain dark glass (reads the same at game distances)
-        if (m.transmission > 0) {
-          o.material = new THREE.MeshStandardMaterial({
-            name: m.name, color: 0x10151c, metalness: 0.5, roughness: 0.12,
-            envMapIntensity: 1.2,
-          });
-          return;
-        }
-        if (m.name === M.paint) {
-          m.color.set(V.color);
-          m.clearcoat = 1.0; m.clearcoatRoughness = 0.06; m.envMapIntensity = 1.1;
-        }
-        if (m.name === (M.lights || 'lights')) {
-          this._headlightMat = m;
-          m.emissiveIntensity = 0.5;
-        }
+      if (kit.wheelXFix.length) this._wheelXFix = kit.wheelXFix;
+      if (kit.headlightMat) this._headlightMat = kit.headlightMat;
+      kit.wheels.forEach((wg, i) => {
+        if (!wg) return;
+        const grp = this.wheelMeshes[i];
+        grp.clear();
+        grp.add(wg);
+        grp.userData.spin = wg.userData.spin;      // update() drives the spin sub-group
       });
-
-      const wrap = new THREE.Group();
-      wrap.rotation.y = Math.PI;                   // model +z forward -> game -z forward
-      if (M.scale) wrap.scale.setScalar(M.scale);  // fbx exports often land at 1/100
-      wrap.add(root);
-      wrap.updateWorldMatrix(true, true);
-
-      // ---- per-corner wheel nodes (M.wheelTag) --------------------------------
-      // Some conversions ship each wheel as its own mesh pivoted at its own
-      // centre with the corner placement lost. Bake the world transform and
-      // mount straight into the physics wheel groups; calipers ride the
-      // non-spinning group (their vertices are already wheel-centre-relative).
-      if (M.wheelTag) {
-        const bake = (mesh) => {
-          const geo = (mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone());
-          geo.applyMatrix4(mesh.matrixWorld);
-          const pivot = mesh.getWorldPosition(new THREE.Vector3());
-          geo.translate(-pivot.x, -pivot.y, -pivot.z);
-          return geo;
-        };
-        for (const [tag, wi] of Object.entries(M.wheelNodes || { LF: 0, RF: 1, LR: 2, RR: 3 })) {
-          const grp = this.wheelMeshes[wi];
-          grp.clear();
-          const spin = new THREE.Group();
-          grp.add(spin);
-          grp.userData.spin = spin;
-          root.traverse(o => {
-            if (!o.isMesh || !o.name) return;
-            const isWheel = o.name.includes(M.wheelTag + tag);
-            const isCal = M.caliperTag && o.name.includes(M.caliperTag + tag);
-            if (!isWheel && !isCal) return;
-            const part = new THREE.Mesh(bake(o), o.material);
-            part.castShadow = true;
-            (isWheel ? spin : grp).add(part);
-            o.visible = false;
-          });
-          grp.scale.setScalar(W.radius / (M.wheelR || W.radius));
-        }
-        wrap.position.set(0, staticWheelY - M.wheelY, M.dz || 0);
-        this.exterior.add(wrap);
-        this._model = wrap;
-        return;
-      }
-
-      // wheels: model space AFTER the flip — axleFront node sits at -z (game front)
-      for (const [nodeName, base] of [[M.axleFront, 0], [M.axleRear, 2]]) {
-        const node = root.getObjectByName(nodeName);
-        if (!node) continue;
-        const parts = node.children.filter(c => c.isMesh);
-        for (const sgn of [-1, 1]) {
-          // wheel centre from the round parts only (the off-axis caliper would bias it)
-          const box = new THREE.Box3(); const v = new THREE.Vector3();
-          const roundParts = parts.filter(m => m.material.name !== M.caliper);
-          for (const mesh of roundParts) {
-            const p = mesh.geometry.attributes.position;
-            for (let i = 0; i < p.count; i++) {
-              v.fromBufferAttribute(p, i).applyMatrix4(mesh.matrixWorld);
-              if (v.x * sgn > 0.02) box.expandByPoint(v);
-            }
-          }
-          if (box.isEmpty()) continue;
-          const centre = box.getCenter(new THREE.Vector3());
-          // the model bakes camber/toe into the wheels — spinning around raw x wobbles.
-          // Fit the TRUE axle axis from the rim vertices and align it to x.
-          const rimParts = parts.filter(m => (M.spin || ['silver']).includes(m.material.name));
-          const axis = wheelAxis(rimParts.length ? rimParts : roundParts, sgn, centre);
-          const qFix = axis ? new THREE.Quaternion().setFromUnitVectors(axis, new THREE.Vector3(1, 0, 0)) : null;
-          const wi = base + (sgn < 0 ? 0 : 1);     // wheel order: FL, FR, RL, RR
-          // visual wheel x follows the MODEL's fenders (physics track is wider —
-          // wheels poking out of the arches read broken; 10 cm is imperceptible)
-          (this._wheelXFix || (this._wheelXFix = []))[wi] = centre.x;
-          const grp = this.wheelMeshes[wi];
-          grp.clear();
-          const spin = new THREE.Group();
-          grp.add(spin);
-          grp.userData.spin = spin;
-          for (const mesh of parts) {
-            const geo = halfMeshGeometry(mesh, sgn, centre, qFix);
-            if (!geo) continue;
-            const part = new THREE.Mesh(geo, mesh.material);
-            part.castShadow = true;
-            // ONLY the rim spins. The tyre bakes a parked contact flat-spot and the
-            // 'plastic' prim contains non-circular wheel-tub/duct bits — spinning
-            // either reads lumpy. Rotationally-symmetric black parts look identical
-            // static, and the flat spot stays squashed against the road.
-            const spins = (M.spin || ['silver']).includes(mesh.material.name);
-            (spins ? spin : grp).add(part);
-          }
-          grp.scale.setScalar(W.radius / (M.wheelR || W.radius));
-        }
-        node.visible = false;
-      }
-
-      // body placement: align wheel centres to the physics wheels
-      wrap.position.set(0, staticWheelY - M.wheelY, M.dz || 0);
-      this.exterior.add(wrap);
-      this._model = wrap;
+      this.exterior.add(kit.wrap);
+      this._model = kit.wrap;
     });
   }
 

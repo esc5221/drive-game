@@ -34,21 +34,25 @@ function encodeState(buf, seq, v) {
   dv.setUint8(31, 0);
 }
 function decodeState(dv, o) {
+  const tb = dv.getUint8(o + 30);
   return {
     seq: dv.getUint16(o + 1, true),
     pos: new THREE.Vector3(dv.getFloat32(o + 3, true), dv.getFloat32(o + 7, true), dv.getFloat32(o + 11, true)),
     vel: new THREE.Vector3(dv.getInt16(o + 15, true) / 100, dv.getInt16(o + 17, true) / 100, dv.getInt16(o + 19, true) / 100),
     quat: new THREE.Quaternion(dv.getInt16(o + 21, true) / 32700, dv.getInt16(o + 23, true) / 32700,
       dv.getInt16(o + 25, true) / 32700, dv.getInt16(o + 27, true) / 32700).normalize(),
+    steer: dv.getInt8(o + 29) / 127,
+    brake: (tb >> 4) / 15,
   };
 }
 
 // ---- remote player: jitter buffer + hermite playback ------------------------
 const _p0 = new THREE.Vector3(), _q0 = new THREE.Quaternion();
 class RemotePlayer {
-  constructor(scene, idx, nick) {
+  constructor(scene, idx, nick, carId) {
     this.idx = idx; this.nick = nick;
-    this.car = new RemoteCar(scene, idx, nick);
+    this.car = new RemoteCar(scene, idx, nick, carId);
+    this._lastUp = performance.now();
     this.buf = [];                       // {t (sender s), pos, vel, quat}
     this.seqBase = -1; this.seqLast = 0;
     this.off = null;                     // local-minus-sender clock offset (min-biased)
@@ -65,7 +69,7 @@ class RemotePlayer {
     const now = performance.now() / 1000;
     const off = now - t;
     this.off = this.off == null ? off : (off < this.off ? off : this.off + (off - this.off) * 0.05);
-    this.buf.push({ t, pos: s.pos, vel: s.vel, quat: s.quat });
+    this.buf.push({ t, pos: s.pos, vel: s.vel, quat: s.quat, steer: s.steer || 0, brake: s.brake || 0 });
     if (this.buf.length > 24) this.buf.shift();
     this.lastRx = performance.now();
   }
@@ -73,7 +77,10 @@ class RemotePlayer {
     const b = this.buf;
     if (!b.length || this.off == null) return;
     if (performance.now() - this.lastRx > 10000) { this.car.hide(); return; }
-    const playT = performance.now() / 1000 - this.off - DELAY;
+    const now = performance.now();
+    const frameDt = Math.min(0.1, (now - this._lastUp) / 1000);
+    this._lastUp = now;
+    const playT = now / 1000 - this.off - DELAY;
     let i = b.length - 1;
     while (i > 0 && b[i].t > playT) i--;
     const a = b[i], c = b[Math.min(i + 1, b.length - 1)];
@@ -83,6 +90,7 @@ class RemotePlayer {
       _p0.copy(last.pos).addScaledVector(last.vel, dt);
       this.car.fade(playT - last.t > EXTRAP_MAX ? Math.max(0, 1 - (playT - last.t - EXTRAP_MAX) / 0.5) : 1);
       this.car.set(_p0, last.quat);
+      this.car.drive(last.vel.length(), last.steer, last.brake, frameDt);
       return;
     }
     const span = c.t - a.t || SEND_DT;
@@ -97,6 +105,10 @@ class RemotePlayer {
     _q0.slerpQuaternions(a.quat, c.quat, u);
     this.car.fade(1);
     this.car.set(_p0, _q0);
+    this.car.drive(
+      a.vel.length() + (c.vel.length() - a.vel.length()) * u,
+      a.steer + (c.steer - a.steer) * u,
+      Math.max(a.brake, c.brake), frameDt);
   }
   dispose() { this.car.dispose(); }
 }
@@ -250,7 +262,7 @@ export class MPClient {
 
   _add(p) {
     if (this.players.has(p.i)) return;
-    this.players.set(p.i, new RemotePlayer(this.scene, p.i, p.nick));
+    this.players.set(p.i, new RemotePlayer(this.scene, p.i, p.nick, p.car));
   }
 
   // ---- race session -----------------------------------------------------------
