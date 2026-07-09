@@ -13,3 +13,6 @@ public/samples/
 
 # optimizer scratch (regenerable)
 tmp/
+
+# wrangler local dev state
+workers/mp/.wrangler/

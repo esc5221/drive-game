@@ -264,13 +264,9 @@ export class MPClient {
     const el = this._chip;
     if (!el) return;
     el.innerHTML = '';
-    if (!this.room) {
-      const b = document.createElement('button');
-      b.textContent = '🔗 멀티 방 만들기';
-      b.onclick = () => this.create();
-      el.appendChild(b);
-      return;
-    }
+    // room creation lives in the lobby (/mp) — in-game the chip is status-only
+    el.style.display = this.room ? 'flex' : 'none';
+    if (!this.room) return;
     const dot = document.createElement('span');
     dot.textContent = this.connected ? '●' : '○';
     dot.style.color = this.connected ? '#5fcf6f' : '#ff9a66';
@@ -281,7 +277,7 @@ export class MPClient {
     const copy = document.createElement('button');
     copy.textContent = '링크 복사';
     copy.onclick = () => {
-      const link = location.origin + '/?room=' + this.room;
+      const link = location.origin + '/mp?room=' + this.room;   // invites land on the lobby
       navigator.clipboard?.writeText(link).then(() => { copy.textContent = '복사됨!'; setTimeout(() => copy.textContent = '링크 복사', 1200); });
     };
     const out = document.createElement('button');

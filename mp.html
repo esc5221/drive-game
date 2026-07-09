@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nürburgring Drive — Multiplayer</title>
+<meta name="description" content="친구와 함께 달리기 — 방을 만들고 링크를 공유하세요.">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 50% 0%, #142234, #03070d 70%);
+    color: #dfe4ea; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    display: flex; justify-content: center;
+  }
+  #lobby { width: min(430px, 92vw); padding: 40px 0 60px;
+    padding-top: max(40px, env(safe-area-inset-top)); }
+  h1 { font-size: 24px; font-weight: 800; letter-spacing: 3px; color: #fff; margin: 0; }
+  h1 span { color: #ffd24a; margin-left: 8px; }
+  .sub { font-size: 12px; letter-spacing: 4px; color: #7ec8ff; font-weight: 700; margin: 4px 0 30px; }
+  label, .sec { display: block; font-size: 12px; letter-spacing: 2px; color: #8aa0b6; margin: 20px 0 7px; }
+  input {
+    width: 100%; background: rgba(255,255,255,0.06); color: #fff;
+    border: 1.5px solid rgba(255,255,255,0.16); border-radius: 9px;
+    padding: 12px 14px; font-size: 16px; font-family: inherit; outline: none;
+  }
+  input:focus { border-color: #7ec8ff; }
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+  .opt { background: rgba(255,255,255,0.06); color: #dfe4ea; border: 1.5px solid rgba(255,255,255,0.16);
+    border-radius: 9px; padding: 10px 14px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .opt.active { border-color: #7ec8ff; background: rgba(64,130,200,0.35); color: #fff; }
+  .primary { margin-top: 26px; width: 100%; padding: 15px; font-size: 16px; font-weight: 800;
+    letter-spacing: 2px; color: #07140e; background: linear-gradient(180deg,#7ee0a8,#46c483);
+    border: none; border-radius: 11px; cursor: pointer; font-family: inherit; }
+  .primary:disabled { filter: grayscale(0.8) brightness(0.6); cursor: default; }
+  .or { text-align: center; color: #4a5563; font-size: 12px; letter-spacing: 2px; margin: 22px 0; }
+  .coderow { display: flex; gap: 8px; }
+  .coderow input { flex: 1; text-transform: uppercase; letter-spacing: 6px; font-weight: 700; text-align: center; }
+  .coderow button { padding: 0 22px; background: rgba(126,200,255,0.15); color: #cfe8ff;
+    border: 1.5px solid rgba(126,200,255,0.4); border-radius: 9px; font-size: 15px; font-weight: 700;
+    cursor: pointer; font-family: inherit; }
+  .banner { background: rgba(64,130,200,0.18); border: 1.5px solid rgba(126,200,255,0.45);
+    border-radius: 10px; padding: 12px 15px; font-size: 14px; color: #cfe8ff; margin-bottom: 4px; }
+  .banner b { color: #7ec8ff; letter-spacing: 2px; }
+  #err { color: #ff9a80; font-size: 13px; min-height: 18px; margin-top: 10px; }
+
+  /* waiting room */
+  .roomcode { font-size: 46px; font-weight: 800; letter-spacing: 14px; color: #7ec8ff;
+    text-align: center; margin: 26px 0 4px; text-indent: 14px; }
+  .roomtrack { text-align: center; color: #8aa0b6; font-size: 14px; margin-bottom: 18px; }
+  .rowbtns { display: flex; gap: 8px; justify-content: center; }
+  .rowbtns button { background: rgba(126,200,255,0.15); color: #cfe8ff; border: 1.5px solid rgba(126,200,255,0.4);
+    border-radius: 9px; padding: 9px 16px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  #roster { list-style: none; margin: 10px 0 0; padding: 0; }
+  #roster li { display: flex; align-items: center; gap: 10px; padding: 11px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 15px; }
+  #roster .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  #roster .me { color: #8aa0b6; font-size: 12px; margin-left: auto; }
+  .ghostbtn { margin-top: 14px; width: 100%; padding: 11px; background: none; color: #6a7686;
+    border: 1.5px solid rgba(255,255,255,0.12); border-radius: 9px; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .foot { margin-top: 34px; text-align: center; font-size: 11.5px; color: #4a5563; }
+  .foot a { color: #6a7686; }
+</style>
+</head>
+<body>
+<div id="lobby">
+  <h1>NÜRBURGRING<span>DRIVE</span></h1>
+  <div class="sub">MULTIPLAYER</div>
+
+  <!-- entry: create or join -->
+  <section id="s-entry">
+    <div class="banner" id="joinbanner" hidden><b id="jb-code"></b> 방에 참가합니다</div>
+    <label for="nick">닉네임</label>
+    <input id="nick" maxlength="16" autocomplete="off" spellcheck="false">
+    <div id="createui">
+      <div class="sec">트랙</div>
+      <div class="btnrow" id="trackrow"></div>
+      <button class="primary" id="create">방 만들기</button>
+    </div>
+    <button class="primary" id="joingo" hidden>참가하기</button>
+    <div id="orsep" class="or">─&nbsp;&nbsp;또는 코드로 참가&nbsp;&nbsp;─</div>
+    <div class="coderow" id="coderow">
+      <input id="code" maxlength="4" placeholder="CODE" autocomplete="off">
+      <button id="joinbtn">참가</button>
+    </div>
+    <div id="err"></div>
+  </section>
+
+  <!-- waiting room -->
+  <section id="s-room" hidden>
+    <div class="roomcode" id="rc"></div>
+    <div class="roomtrack" id="rt"></div>
+    <div class="rowbtns"><button id="copy">🔗 초대 링크 복사</button></div>
+    <div class="sec">참가자</div>
+    <ul id="roster"></ul>
+    <button class="primary" id="drive">주행 시작 →</button>
+    <button class="ghostbtn" id="leave">나가기</button>
+  </section>
+
+  <div class="foot"><a href="./">← 싱글플레이(홈)</a></div>
+</div>
+<script type="module" src="./js/lobby.js"></script>
+</body>
+</html>

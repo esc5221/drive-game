@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         main: resolve(root, 'index.html'),
         logic: resolve(root, 'data/game_logic.html'),   // /data/game_logic.html sub-page
+        mp: resolve(root, 'mp.html'),                   // multiplayer lobby (lightweight, no Three.js)
       },
     },
   },
