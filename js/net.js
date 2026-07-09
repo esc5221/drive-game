@@ -1,5 +1,5 @@
 // Multiplayer client — link-only rooms over a Durable Object relay.
-// Loaded ONLY on the /mp URL (dynamic import), so the home page ships nothing.
+// Loaded only with ?room= (dynamic import), so the home page ships nothing.
 //
 // Cost gating (the invariant: pay only while friends actually drive together):
 //   - solo in room  -> send 0 Hz (DO hibernates; we only wait for a join event)
@@ -277,7 +277,7 @@ export class MPClient {
     const copy = document.createElement('button');
     copy.textContent = '링크 복사';
     copy.onclick = () => {
-      const link = location.origin + '/mp?room=' + this.room;   // invites land on the lobby
+      const link = location.origin + '/multi?room=' + this.room;   // invites land on the lobby
       navigator.clipboard?.writeText(link).then(() => { copy.textContent = '복사됨!'; setTimeout(() => copy.textContent = '링크 복사', 1200); });
     };
     const out = document.createElement('button');

@@ -3,15 +3,8 @@
 <head>
 <meta charset="utf-8">
 <script>
-// rescue: an old deploy 301'd /mp -> /?mp=1 and browsers cache 301s permanently.
-// Forward those visitors to the lobby BEFORE any game asset loads. The query
-// buster matters: Pages normalizes mp.html -> /mp (308), and a bare /mp would
-// hit the cached 301 again (infinite loop) — /mp?via=rescue is a different URL,
-// so it misses the stale cache and gets a fresh 200.
-(function () {
-  var q = new URLSearchParams(location.search);
-  if (q.has('mp') && !q.has('room')) location.replace('./mp.html?via=rescue');
-})();
+// old /mp links 301'd here (?mp=1) and browsers cache that forever — forward to the lobby.
+(function () { var q = new URLSearchParams(location.search); if (q.has('mp') && !q.has('room')) location.replace('./multi.html'); })();
 </script>
 <title>Nürburgring Drive — Driving Simulator</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">

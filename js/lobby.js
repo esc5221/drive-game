@@ -1,4 +1,4 @@
-// Multiplayer lobby (mp.html) — lightweight entry: no Three.js, no game boot.
+// Multiplayer lobby (multi.html) — lightweight entry: no Three.js, no game boot.
 // Create a room (snapshotting track+seed) or join via code/link, watch the
 // roster fill up live over the same Room DO websocket, then "주행 시작" hands
 // off to the game page (/?room=CODE). The game reconnects with the same nick.
@@ -144,7 +144,7 @@ $('create').onclick = createRoom;
 $('joinbtn').onclick = () => { const c = $('code').value; if (c.trim().length >= 4) joinRoom(c); };
 $('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('joinbtn').click(); });
 $('copy').onclick = () => {
-  const link = location.origin + '/mp?room=' + room;
+  const link = location.origin + '/multi?room=' + room;
   navigator.clipboard?.writeText(link).then(() => {
     $('copy').textContent = '복사됨!';
     setTimeout(() => $('copy').textContent = '🔗 초대 링크 복사', 1200);
