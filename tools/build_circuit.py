@@ -32,6 +32,31 @@ CONFIGS = {
                        (950, 419.5), (1015, 419)],
         },
     },
+    'everland': {
+        'name': 'Everland Speedway',
+        'bbox': (37.28, 127.19, 37.31, 127.22),
+        'exclude': r'Pit Lane',
+        # ways are unnamed in OSM — start from the way holding the main straight
+        'start_id': 240199084,
+        # rotate s=0 to the start/finish line (mid main straight, abeam pits);
+        # heading-based branch picks skip the short-layout connector ways
+        'rotate_to': (37.296287, 127.206492),
+        'step': 5.0,
+        'elev_node': 55,
+        # SRTM predates the 2013 Tilke extension (graded/terraced build on the
+        # old parking lot), so the east loop shows pre-construction valley
+        # spikes — cap at a racetrack-plausible grade, keep the undulation
+        'max_grade': 0.10,
+        # the T6-T7 stretch shows a ±20 m sawtooth in every 2000-era DEM — a
+        # pre-construction hill the 2013 earthworks cut through. Replace with
+        # a single gentle climb out of the T5 low toward the T8/T9 rise.
+        'elev_sculpt': {
+            'range': (1950, 2550), 'blend': 60,
+            'points': [(1950, 88), (2100, 92), (2250, 95), (2400, 96), (2550, 100)],
+        },
+        # OSM ways carry no corner names — synthesize Turn 1..N + straights
+        'auto_segments': True,
+    },
 }
 
 
@@ -58,11 +83,14 @@ def angdiff(a, b):
     return abs(d)
 
 
-def stitch(ways, start_name):
+def stitch(ways, start_name, start_id=None):
     by_start = {}
     for w in ways:
         by_start.setdefault(w['nodes'][0], []).append(w)
-    start = next(w for w in ways if w['name'] == start_name)
+    if start_id is not None:
+        start = next(w for w in ways if w['id'] == start_id)
+    else:
+        start = next(w for w in ways if w['name'] == start_name)
     loop_start = start['nodes'][0]
     used = {start['id']}
     chain = [start]
@@ -200,6 +228,79 @@ def slope_limit(ys, step, max_grade):
     return [sum(ys[(i + k) % n] for k in range(-half, half + 1)) / (2 * half + 1) for i in range(n)]
 
 
+def auto_segments(xs, zs, step):
+    """Synthesize section names from geometry when OSM ways are unnamed:
+    detect sustained corners from centreline curvature and number them
+    Turn 1..N in driving order, with 'Straight' segments between."""
+    n = len(xs)
+    kap = []
+    for i in range(n):
+        ax, az = xs[(i - 1) % n], zs[(i - 1) % n]
+        bx, bz = xs[i], zs[i]
+        cx, cz = xs[(i + 1) % n], zs[(i + 1) % n]
+        h1 = math.atan2(bz - az, bx - ax)
+        h2 = math.atan2(cz - bz, cx - bx)
+        d = h2 - h1
+        while d > math.pi: d -= 2 * math.pi
+        while d < -math.pi: d += 2 * math.pi
+        kap.append(d / step)
+    half = 2
+    kap = [sum(kap[(i + k) % n] for k in range(-half, half + 1)) / (2 * half + 1) for i in range(n)]
+
+    THRESH = 1 / 180.0                      # corner = radius under ~180 m
+    corner = [abs(k) > THRESH for k in kap]
+    # corner runs, split where the turn direction flips (esses = separate turns)
+    runs = []
+    i = 0
+    while i < n:
+        if not corner[i]:
+            i += 1; continue
+        j = i
+        while j < n and corner[j]: j += 1
+        k0 = i
+        for k in range(i + 1, j):
+            if kap[k] * kap[k - 1] < 0 and (k - k0) * step >= 15:
+                runs.append([k0, k, 1 if kap[k0] > 0 else -1]); k0 = k
+        runs.append([k0, j, 1 if kap[k0] > 0 else -1])
+        i = j
+    # merge same-direction runs separated by short gaps (double apexes, kinks)
+    GAP = round(40 / step)
+    merged = []
+    for r in runs:
+        if merged and r[0] - merged[-1][1] <= GAP and r[2] == merged[-1][2]:
+            merged[-1][1] = r[1]
+        else:
+            merged.append(r)
+    # a run wrapping past n joins the first run
+    if len(merged) > 1 and corner[0] and corner[n - 1] and merged[0][2] == merged[-1][2]:
+        merged[0][0] = merged[-1][0] - n
+        merged.pop()
+    merged = [r for r in merged if (r[1] - r[0]) * step >= 15]   # drop blips
+    merged.sort(key=lambda r: (r[0] % n))    # number turns in driving order from s=0
+
+    segs = []
+    for t, (i0, i1, _sign) in enumerate(merged):
+        s0 = (i0 % n) * step
+        if t == 0 and s0 > 60:
+            segs.append({'name': 'Straight', 's': 0.0})
+        segs.append({'name': f'Turn {t + 1}', 's': s0})
+        s1 = (i1 % n) * step
+        nxt = merged[(t + 1) % len(merged)][0] % n * step
+        if (nxt - s1) % (n * step) > 60:    # only name gaps long enough to matter
+            segs.append({'name': 'Straight', 's': s1 % (n * step)})
+    segs.sort(key=lambda x: x['s'])
+    # collapse duplicates at the same arc position
+    out = []
+    for s in segs:
+        if out and abs(s['s'] - out[-1]['s']) < 2 * step and out[-1]['name'] == 'Straight':
+            out[-1] = s
+        elif out and abs(s['s'] - out[-1]['s']) < 2 * step and s['name'] == 'Straight':
+            continue
+        else:
+            out.append(s)
+    return out
+
+
 def fetch_elevation(latlons):
     elev = []; B = 500
     for i in range(0, len(latlons), B):
@@ -224,20 +325,32 @@ def fetch_elevation(latlons):
 def main(cid):
     cfg = CONFIGS[cid]
     step = cfg['step']
-    print(f'fetching OSM for {cfg["name"]}...')
-    q = (f'[out:json][timeout:90];way["highway"="raceway"]'
-         f'({cfg["bbox"][0]},{cfg["bbox"][1]},{cfg["bbox"][2]},{cfg["bbox"][3]});out geom;')
-    req = urllib.request.Request(
-        'https://overpass-api.de/api/interpreter',
-        data=urllib.parse.urlencode({'data': q}).encode(),
-        headers={'Content-Type': 'application/x-www-form-urlencoded',
-                 'User-Agent': 'nordschleife-game/1.0'})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        raw = json.load(r)
+    cache = f'{ROOT}/data/{cid}_osm.json'
+    if os.path.exists(cache):
+        print(f'using cached OSM ({cache})')
+        raw = json.load(open(cache))
+    else:
+        print(f'fetching OSM for {cfg["name"]}...')
+        q = (f'[out:json][timeout:90];way["highway"="raceway"]'
+             f'({cfg["bbox"][0]},{cfg["bbox"][1]},{cfg["bbox"][2]},{cfg["bbox"][3]});out geom;')
+        req = urllib.request.Request(
+            'https://overpass-api.de/api/interpreter',
+            data=urllib.parse.urlencode({'data': q}).encode(),
+            headers={'Content-Type': 'application/x-www-form-urlencoded',
+                     'User-Agent': 'nordschleife-game/1.0'})
+        for attempt in range(5):
+            try:
+                with urllib.request.urlopen(req, timeout=120) as r:
+                    raw = json.load(r)
+                break
+            except Exception as e:
+                if attempt == 4: raise
+                print(f'  overpass retry ({e})'); time.sleep(30 * (attempt + 1))
+        json.dump(raw, open(cache, 'w'))
 
     ways = load_ways(raw, cfg['exclude'])
     print(f'{len(ways)} candidate ways')
-    chain = stitch(ways, cfg['start'])
+    chain = stitch(ways, cfg.get('start'), cfg.get('start_id'))
     print(f'stitched {len(chain)} ways')
 
     latlons = []; seg_marks = []
@@ -257,6 +370,21 @@ def main(cid):
     n = len(pts)
     xs = smooth_closed([p[0] for p in pts], 5, passes=2)
     zs = smooth_closed([p[1] for p in pts], 5, passes=2)
+
+    if cfg.get('rotate_to'):
+        rlat, rlon = cfg['rotate_to']
+        rx, rz = (rlon - lon0) * kx, -(rlat - lat0) * ky
+        k0 = min(range(n), key=lambda i: (xs[i] - rx) ** 2 + (zs[i] - rz) ** 2)
+        xs = xs[k0:] + xs[:k0]
+        zs = zs[k0:] + zs[:k0]
+        shift = k0 * step
+        segs = [{'name': s['name'], 's': (s['s'] - shift) % (n * step)} for s in segs]
+        segs.sort(key=lambda s: s['s'])
+        print(f'rotated start line to index {k0} (s shift {shift:.0f} m)')
+
+    if cfg.get('auto_segments'):
+        segs = auto_segments(xs, zs, step)
+        print(f'auto segments: {len(segs)}')
 
     ll = [(lat0 - z/ky, lon0 + x/kx) for x, z in zip(xs, zs)]
     print('fetching elevation...')

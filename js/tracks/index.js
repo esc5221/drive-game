@@ -3,6 +3,7 @@
 export const TRACKS = [
   { id: 'nordschleife', name: 'Nürburgring',              loc: 'Germany',     km: 20.7, spawn: 3550 },
   { id: 'spa',          name: 'Spa-Francorchamps',         loc: 'Belgium',     km: 7.0,  spawn: 40 },
+  { id: 'everland',     name: 'Everland Speedway',         loc: 'South Korea', km: 4.4,  spawn: 20 },
   { id: 'practice',     name: 'Practice Track',            loc: 'Test Facility', km: 2.4, spawn: 20 },
   { id: 'random',       name: 'Random',                    loc: 'Procedural',    km: 0,   spawn: 0, random: true },
   { id: 'kart',         name: 'Kart Circuit',              loc: 'Kart Circuit',  km: 1.5, spawn: 15, hidden: true },

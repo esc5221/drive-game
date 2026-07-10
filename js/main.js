@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { TRACK as T_NORD } from './track_data.js';
 import { TRACK as T_SPA } from './tracks/spa.js';
+import { TRACK as T_EVER } from './tracks/everland.js';
 import { TRACK as T_PRAC } from './tracks/practice.js';
 import { TRACK as T_KART } from './tracks/kart.js';
 import { DEM } from './dem_data.js';
@@ -32,7 +33,7 @@ import { IDEAL_PRACTICE } from './ideal-practice.js';
 import { SCREEN_POS, IS_VIEW, TripleLink, screenQuad, applyOffAxis, loadGeo, saveGeo, singleHFov, openTriple, DEFAULT_GEO } from './triple.js';
 import { BENCH, autoDrive, initGpuTimer, gpuBegin, gpuEnd, benchFrame, benchReset } from './bench.js';
 
-const TRACK_DATA = { nordschleife: T_NORD, spa: T_SPA, practice: T_PRAC, kart: T_KART };
+const TRACK_DATA = { nordschleife: T_NORD, spa: T_SPA, everland: T_EVER, practice: T_PRAC, kart: T_KART };
 const _savedTrack = localStorage.getItem('ns-track');
 const isRandom = _savedTrack === 'random';
 // a saved hidden/removed track (e.g. kart) falls back to the default
@@ -65,7 +66,6 @@ const gfx = IS_VIEW
   : loadGfxCfg();
 let _geo = loadGeo();          // triple-monitor geometry (defined early: settings reads it)
 let _tripleActive = false;     // main window joins the triple (center off-axis) once side windows open
-if (BENCH) initGpuTimer(renderer);   // WebGL2 GPU timer for the benchmark
 // auto-downgrade only when the user left graphics on 'auto'; a manual preset /
 // custom choice forces AutoQuality.done (pass 'low') so it never fights the user.
 const autoTier = gfx.preset === 'auto' ? detectPreset() : 'low';
@@ -80,10 +80,11 @@ renderer.shadowMap.enabled = gfx.shadow > 0;
 renderer.shadowMap.type = gfx.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.getElementById('app').appendChild(renderer.domElement);
+if (BENCH) initGpuTimer(renderer);   // WebGL2 GPU timer for the benchmark
 
 const scene = new THREE.Scene();
 const atmo = new Atmosphere(scene, renderer, { shadow: gfx.shadow, farScale: gfx.far });
-const world = buildWorld(scene, track, { trees: gfx.trees, aniso: gfx.aniso });
+const world = buildWorld(scene, track, { trees: gfx.trees, aniso: gfx.aniso, nord: trackId === 'nordschleife' });
 const roadMat = world.roadMat;
 const streetlights = world.streetlights;
 
@@ -436,7 +437,7 @@ function autopilot(v) {
   const off = raceLine.offsets, vp = raceLine.idealSpd, sk = raceLine.idealSK;
   if (!off || !vp || !sk) return;
   const n = track.n, step = track.step;
-  const q = track.query(v.pos.x, v.pos.z, {});
+  const q = track.query(v.pos.x, v.pos.z, {}, v.pos.y);
   if (!q) return;
   const i = ((Math.floor(q.s / step) % n) + n) % n, spd = v.speedKmh;
   // ---- steering: pure-pursuit + curvature feed-forward + body-slip damping -----
@@ -544,9 +545,9 @@ function updateCamera(dtVis) {
     if (!chaseInit || chasePos.distanceTo(behind) > 40) { chasePos.copy(behind); chaseInit = true; }
     chasePos.lerp(behind, Math.min(1, dtVis * 4.5));
     // keep above visual ground (incl. hillsides)
-    const gq = track.query(chasePos.x, chasePos.z, {});
+    const gq = track.query(chasePos.x, chasePos.z, {}, chasePos.y);
     if (gq) {
-      const gy = groundHeightAt(track, gq, chasePos.x, chasePos.z);
+      const gy = groundHeightAt(track, gq, chasePos.x, chasePos.z, chasePos.y);
       if (chasePos.y < gy + 0.7) chasePos.y = gy + 0.7;
     }
     camera.position.copy(chasePos);

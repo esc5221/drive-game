@@ -111,6 +111,44 @@ export class Track {
       if (!arr) this.grid.set(key, arr = []);
       arr.push(i);
     }
+    this._bp = { a: -1, da2: Infinity, b: -1, db2: Infinity };   // branchPair scratch
+
+    // bridge mask: a figure-8 crossover (Everland) has the centreline actually
+    // CROSSING itself in plan view, one branch bridging over the other. Mark
+    // the upper (deck) indices around each true 2D intersection. Proximity
+    // alone is NOT enough — hairpin switchbacks also run close with height
+    // difference, and those must keep their normal skirts/terrain.
+    this.bridge = new Uint8Array(n);
+    const FARB = Math.max(12, Math.round(60 / this.step));
+    for (let i = 0; i < n; i++) {
+      const j1 = (i + 1) % n;
+      const ax = this.px[i], az = this.pz[i], bx = this.px[j1], bz = this.pz[j1];
+      const cgx = Math.floor(ax / this.cell), cgz = Math.floor(az / this.cell);
+      for (let gx = cgx - 1; gx <= cgx + 1; gx++) {
+        for (let gz = cgz - 1; gz <= cgz + 1; gz++) {
+          const arr = this.grid.get(gx + '|' + gz);
+          if (!arr) continue;
+          for (const j of arr) {
+            let ad = Math.abs(i - j); ad = Math.min(ad, n - ad);
+            if (ad < FARB) continue;
+            const j2 = (j + 1) % n;
+            const cx = this.px[j], cz = this.pz[j], dx2 = this.px[j2], dz2 = this.pz[j2];
+            const rX = bx - ax, rZ = bz - az, sX = dx2 - cx, sZ = dz2 - cz;
+            const den = rX * sZ - rZ * sX;
+            if (Math.abs(den) < 1e-9) continue;
+            const t = ((cx - ax) * sZ - (cz - az) * sX) / den;
+            const u = ((cx - ax) * rZ - (cz - az) * rX) / den;
+            if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+            // a real deck needs vertical separation — an at-grade crossing
+            // (flat kart figure-8) shares one surface and keeps its skirts
+            if (Math.abs(this.py[i] - this.py[j]) < 2.5) continue;
+            const hi = this.py[i] > this.py[j] ? i : j;   // upper branch = deck
+            const R = Math.round(30 / this.step);          // deck + approaches
+            for (let k = -R; k <= R; k++) this.bridge[(hi + k + n) % n] = 1;
+          }
+        }
+      }
+    }
   }
 
   _smooth(arr, win, passes) {
@@ -126,10 +164,16 @@ export class Track {
     }
   }
 
-  // nearest centerline index to (x,z), searching expanding rings of grid cells
-  nearestIndex(x, z, maxRing = 4) {
+  // Nearest centerline index per BRANCH: `a` is the global nearest, `b` the
+  // nearest point that is arc-far from `a` (>60 m along the lap) — i.e. a
+  // different section of track passing nearby (crossover bridge, close
+  // parallel legs). b = -1 when no second branch is in range.
+  // Returns a shared scratch object — consume before the next call.
+  branchPair(x, z, maxRing = 4) {
     const cx = Math.floor(x / this.cell), cz = Math.floor(z / this.cell);
-    let best = -1, bestD = Infinity;
+    const bp = this._bp;
+    let a = -1, da2 = Infinity;
+    let hitRing = -1;
     for (let ring = 0; ring <= maxRing; ring++) {
       for (let gx = cx - ring; gx <= cx + ring; gx++) {
         for (let gz = cz - ring; gz <= cz + ring; gz++) {
@@ -139,20 +183,77 @@ export class Track {
           for (const i of arr) {
             const dx = this.px[i] - x, dz = this.pz[i] - z;
             const d = dx * dx + dz * dz;
-            if (d < bestD) { bestD = d; best = i; }
+            if (d < da2) { da2 = d; a = i; }
           }
         }
       }
-      if (best >= 0 && ring >= 1) break;   // one extra ring after first hit
+      if (hitRing < 0 && a >= 0) hitRing = ring;
+      if (hitRing >= 0 && ring >= hitRing + 1) break;   // one extra ring after first hit
     }
-    return best;
+    bp.a = a; bp.da2 = da2; bp.b = -1; bp.db2 = Infinity;
+    if (a < 0) return bp;
+    // second pass over the same rings for the arc-far branch
+    const n = this.n, FAR = Math.max(12, Math.round(60 / this.step));
+    const lastRing = Math.min(maxRing, hitRing + 1);
+    for (let ring = 0; ring <= lastRing; ring++) {
+      for (let gx = cx - ring; gx <= cx + ring; gx++) {
+        for (let gz = cz - ring; gz <= cz + ring; gz++) {
+          if (ring > 0 && Math.abs(gx - cx) !== ring && Math.abs(gz - cz) !== ring) continue;
+          const arr = this.grid.get(gx + '|' + gz);
+          if (!arr) continue;
+          for (const i of arr) {
+            let ad = Math.abs(i - a); ad = Math.min(ad, n - ad);
+            if (ad < FAR) continue;
+            const dx = this.px[i] - x, dz = this.pz[i] - z;
+            const d = dx * dx + dz * dz;
+            if (d < bp.db2) { bp.db2 = d; bp.b = i; }
+          }
+        }
+      }
+    }
+    return bp;
+  }
+
+  // nearest centerline index to (x,z). With `yRef` (a world height), branch
+  // selection is height-aware: at a crossover the branch nearest to yRef wins
+  // (weighted so the ~7 m deck separation dominates road-width ambiguity).
+  nearestIndex(x, z, maxRing = 4, yRef) {
+    const bp = this.branchPair(x, z, maxRing);
+    if (bp.a < 0 || bp.b < 0 || yRef === undefined) return bp.a;
+    const da = bp.da2 + 3 * (this.py[bp.a] - yRef) * (this.py[bp.a] - yRef);
+    const db = bp.db2 + 3 * (this.py[bp.b] - yRef) * (this.py[bp.b] - yRef);
+    return db < da ? bp.b : bp.a;
+  }
+
+  // nearest index for GROUND purposes: under a crossover deck the single-valued
+  // terrain must follow the LOWER branch so the underpass stays open. Gated on
+  // the bridge mask — close parallel legs (hairpins) keep normal behaviour.
+  nearestIndexLow(x, z, maxRing = 4) {
+    const bp = this.branchPair(x, z, maxRing);
+    if (bp.b >= 0 && bp.db2 < 30 * 30 && this.bridge[bp.a] &&
+        this.py[bp.b] < this.py[bp.a] - 2) return bp.b;
+    return bp.a;
   }
 
   // Full surface query at world (x,z).
+  // `yRef` (optional world height) disambiguates overlapping branches at a
+  // crossover — physics/camera callers pass their y so the bridge deck and the
+  // underpass resolve to their own surface.
   // Returns {s, d, y, nx,ny,nz, tx,ty,tz, surf, i, roll} or null if far off-track.
-  query(x, z, out) {
-    const i0 = this.nearestIndex(x, z);
+  query(x, z, out, yRef) {
+    const i0 = this.nearestIndex(x, z, 4, yRef);
     if (i0 < 0) return null;
+    return this._surface(i0, x, z, out);
+  }
+
+  // ground variant: overlapping branches resolve to the lower one (underpass)
+  queryGround(x, z, out) {
+    const i0 = this.nearestIndexLow(x, z);
+    if (i0 < 0) return null;
+    return this._surface(i0, x, z, out);
+  }
+
+  _surface(i0, x, z, out) {
     const n = this.n;
     // project on the two adjacent segments (horizontal), keep the closer
     let bi = i0, bt = 0, bd2 = Infinity;

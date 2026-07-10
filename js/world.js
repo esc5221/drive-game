@@ -6,8 +6,8 @@ import { ROAD_HALF, CURB_W, RAIL_D } from './track.js';
 import { buildDem, demHeight, worldGround } from './terrain.js';
 import { racingLineOffsets } from './raceline.js';
 
-export function groundHeightAt(track, q, x, z) {   // camera collision helper
-  return worldGround(track, x, z);
+export function groundHeightAt(track, q, x, z, yRef) {   // camera collision helper
+  return worldGround(track, x, z, yRef);
 }
 
 // ---------------------------------------------------------------- textures
@@ -155,11 +155,14 @@ function buildRibbon(track, d0, d1, yOff, material, opts = {}) {
   const v = new THREE.Vector3();
   const heightFn = opts.heightFn || null;
   const dFn = opts.dFn || null;                 // optional per-index lateral shift
+  const maskFn = opts.maskFn || null;           // true => collapse this cross-section
+  const dInner = Math.abs(d0) < Math.abs(d1) ? d0 : d1;
   for (let k = 0; k <= m; k++) {
     const i = (k * stride) % n;
     const shift = dFn ? dFn(i) : 0;
+    const masked = maskFn && maskFn(i);
     for (let side = 0; side < 2; side++) {
-      const d = (side ? d1 : d0) + shift;
+      const d = (masked ? dInner : (side ? d1 : d0)) + shift;
       track.edge(i, d, yOff, v);
       if (heightFn) v.y = heightFn(i, d, v);
       const o = (k * 2 + side) * 3;
@@ -251,9 +254,10 @@ export function buildWorld(scene, track, opts = {}) {
   // ---- grass aprons + blend-to-DEM skirt
   const grassMat = new THREE.MeshStandardMaterial({ color: 0x466132, roughness: 1 });
   const grassFarMat = new THREE.MeshStandardMaterial({ color: 0x3a5128, roughness: 1 });
+  const onBridge = i => !!track.bridge[i];      // no grass skirts on a crossover deck
   for (const sgn of [-1, 1]) {
     const apron = buildRibbon(track, sgn * ROAD_HALF, sgn * (RAIL_D + 6), 0, grassMat, {
-      stride: 2, vScale: 8,
+      stride: 2, vScale: 8, maskFn: onBridge,
       heightFn: (i, d, v) => {
         const ad = Math.abs(d);
         if (ad <= ROAD_HALF + 0.01) return v.y;
@@ -264,7 +268,7 @@ export function buildWorld(scene, track, opts = {}) {
     apron.receiveShadow = true;
     scene.add(apron);
     const far = buildRibbon(track, sgn * (RAIL_D + 6), sgn * 60, 0, grassFarMat, {
-      stride: 3,
+      stride: 3, maskFn: onBridge,
       heightFn: (i, d, v) => {
         const ad = Math.abs(d);
         const e = new THREE.Vector3(); track.edge(i, Math.sign(d) * ROAD_HALF, 0, e);
@@ -285,6 +289,14 @@ export function buildWorld(scene, track, opts = {}) {
   for (const sgn of [-1, 1]) scene.add(buildRailRibbon(track, sgn * RAIL_D, 0.35, 0.80, railMat));
   addRailPosts(scene, track);
 
+  // ---- crossover bridge underdeck (seen from the underpass; road is FrontSide)
+  if (track.bridge.includes(1)) {
+    const deckMat = new THREE.MeshStandardMaterial({ color: 0x5c5f63, roughness: 0.95, side: THREE.DoubleSide });
+    const deck = buildRibbon(track, -(ROAD_HALF + 0.9), ROAD_HALF + 0.9, -0.55, deckMat,
+      { maskFn: i => !track.bridge[i] });      // collapses everywhere EXCEPT the deck
+    scene.add(deck);
+  }
+
   // ---- world dressing
   addForest(scene, track, treeFrac);
   addSigns(scene, track);
@@ -292,10 +304,16 @@ export function buildWorld(scene, track, opts = {}) {
   addBrakingMarkers(scene, track, chunks);
   addKmPosts(scene, track);
   addAdBridge(scene, track);
-  addAdBoards(scene, track);
-  addGraffiti(scene, track);
-  addVillage(scene, track);
-  addSpectators(scene, track);
+  // Nordschleife-only set dressing: these use hard-coded 'Ring arc positions
+  // (Breidscheid village, Brünnchen campers, German ad boards, tarmac
+  // graffiti). On any other track the `% track.n` wrap scatters them at
+  // arbitrary spots — including ON nearby track sections.
+  if (opts.nord) {
+    addAdBoards(scene, track);
+    addGraffiti(scene, track);
+    addVillage(scene, track);
+    addSpectators(scene, track);
+  }
 
   const streetlights = addStreetlights(scene, track);
   return { roadMat, streetlights };
@@ -316,8 +334,10 @@ function addStreetlights(scene, track) {
   for (let k = 0; k < n; k++) {
     const i = Math.round((k * step) / track.step) % track.n;
     const side = (k % 2) ? 1 : -1;                 // alternate sides
+    if (track.bridge[i]) continue;               // no lamp poles on the crossover deck
     track.edge(i, side * (RAIL_D + 0.6), 0, v);
     const gy = worldGround(track, v.x, v.z);
+    if (Math.abs(gy - v.y) > 3) continue;        // pole base far below its road → skip
     lamps.push({ x: v.x, y: gy, z: v.z, side, i, yaw: Math.atan2(track.tx[i], track.tz[i]) });
   }
 
@@ -354,7 +374,7 @@ function addStreetlights(scene, track) {
     // reads as real side-mounted lighting regardless of which side the lamp is on.
     const dim = r() < 0.12 ? 0 : (0.82 + r() * 0.36);    // occasional dead lamp + variation
     track.edge(L.i, L.side * (0.5 + r() * 0.5), 0.04, poolPos);
-    const qy = track.query(poolPos.x, poolPos.z, {});
+    const qy = track.query(poolPos.x, poolPos.z, {}, poolPos.y);
     if (qy && dim > 0) {
       tangent.set(qy.tx, qy.ty, qy.tz).normalize();
       const cr = Math.cos(qy.roll), sr = Math.sin(qy.roll);
@@ -537,11 +557,11 @@ function addForest(scene, track, frac = 1) {
   let kc = 0, kb = 0;
   const place = (x, z) => {
     if (kc >= MAXC && kb >= MAXB) return;
-    const ni = track.nearestIndex(x, z);
-    if (ni >= 0) {
-      const dx = track.px[ni] - x, dz = track.pz[ni] - z;
-      if (dx * dx + dz * dz < 13.5 * 13.5) return;
-    }
+    const bp = track.branchPair(x, z);
+    if (bp.a >= 0 && bp.da2 < 13.5 * 13.5) return;
+    // never plant where two branches overlap (crossover) — a tree grounded on
+    // the lower branch would grow up through the bridge deck
+    if (bp.b >= 0 && bp.db2 < 20 * 20) return;
     const gy = worldGround(track, x, z);
     const s = 0.95 + r() * 1.35;
     if (r() < 0.28 && kb < MAXB) { broads.push([x, gy, z, s]); kb++; }
@@ -700,9 +720,10 @@ function addGantry(scene, track) {
   beam.position.set(0, 6.0, 0);
   beam.castShadow = true;
   g.add(beam);
+  const bannerText = (track.name || 'CIRCUIT').toUpperCase().split('').join(' ').replace(/ {3}/g, '   ');
   const banner = new THREE.Mesh(new THREE.PlaneGeometry(11, 1.0),
     new THREE.MeshBasicMaterial({
-      map: textPanel('N Ü R B U R G R I N G   N O R D S C H L E I F E',
+      map: textPanel(bannerText,
         { w: 1024, h: 96, bg: '#10151c', fg: '#fff', size: 56, font: 'Arial' }),
       side: THREE.DoubleSide,
     }));

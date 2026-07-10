@@ -133,7 +133,7 @@ export class Vehicle {
     const wp = new THREE.Vector3();
     for (const w of this.wheels) {
       wp.set(w.x, 0, w.z).applyQuaternion(this.quat).add(this.pos);
-      const q = this.track.query(wp.x, wp.z, {});
+      const q = this.track.query(wp.x, wp.z, {}, p.y);
       if (q) maxY = Math.max(maxY, q.y);
     }
     this.pos.y = maxY + this.comH + 0.03;
@@ -144,7 +144,7 @@ export class Vehicle {
     this._flipTime = 0; this.rollover = false;
     this._manualHold = 0;
     this._parkHeld = false;                       // sleep anchor must not survive a teleport
-    const q = this.track.query(p.x, p.z, {});
+    const q = this.track.query(p.x, p.z, {}, p.y);
     if (q) { this.trackS = q.s; this._prevS = q.s; }
   }
 
@@ -300,7 +300,7 @@ export class Vehicle {
       // iterate ground height under the wheel (rays are near-vertical; 2 iterations converge)
       let gx = attach.x, gz = attach.z, q = null;
       for (let it = 0; it < 2; it++) {
-        q = this.track.query(gx, gz, w.q);
+        q = this.track.query(gx, gz, w.q, attach.y);
         if (!q) break;
         // slide contact guess down the -bodyUp direction
         const t = (attach.y - q.y) / Math.max(0.4, bodyUp.y);
@@ -517,7 +517,7 @@ export class Vehicle {
     this.rollover = this._flipTime > 1.5;
 
     // ---- track position / lap distance
-    const tq = this.track.query(this.pos.x, this.pos.z, this._bodyQ);
+    const tq = this.track.query(this.pos.x, this.pos.z, this._bodyQ, this.pos.y);
     if (tq) {
       let ds = tq.s - this._prevS;
       const T = this.track.total;
@@ -552,7 +552,7 @@ export class Vehicle {
       // apply the wall normal force at CoM height (y=0): pushing below the CoM
       // produced a roll torque that flipped the car when grinding the rail.
       const p = S.wallP.set(cx, 0.0, cz).applyQuaternion(this.quat).add(this.pos);
-      const q = this.track.query(p.x, p.z, S.wallQ);
+      const q = this.track.query(p.x, p.z, S.wallQ, p.y);
       if (!q) continue;
       const pen = Math.abs(q.d) - WALL_D;
       if (pen <= 0) continue;

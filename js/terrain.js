@@ -13,7 +13,8 @@ export function setDem(dem) { _dem = dem || null; _distGrid = null; }
 
 function rawDem(x, z) {
   if (!_dem) {              // procedural: follow the nearest track elevation
-    const ni = _track ? _track.nearestIndex(x, z, 10) : -1;
+    // lower branch wins at a crossover — terrain must not sit at deck height
+    const ni = _track ? _track.nearestIndexLow(x, z, 10) : -1;
     let baseY = _meanY, dist = 300;
     if (ni >= 0) { baseY = _track.py[ni]; dist = Math.hypot(_track.px[ni] - x, _track.pz[ni] - z); }
     const n = Math.sin(x * 0.0061 + z * 0.0103) * Math.sin(x * 0.0152 - z * 0.0047)
@@ -65,26 +66,28 @@ export function demHeight(x, z) {
   // it can't poke up onto the track. Real DEM (Nürburgring): tight cone past a
   // coarse distance gate. Procedural (Spa/practice): keep ground below the road
   // within ~55 m, hills only emerge gently beyond.
-  let ni;
-  if (_dem) {
-    if (coarseDist(x, z) > 200) return y;
-    ni = _track.nearestIndex(x, z, 6);
-  } else {
-    ni = _track.nearestIndex(x, z, 10);
-  }
-  if (ni < 0) return y;
-  const dx = _track.px[ni] - x, dz = _track.pz[ni] - z;
-  const dist = Math.hypot(dx, dz);
+  if (_dem && coarseDist(x, z) > 200) return y;
+  const bp = _track.branchPair(x, z, _dem ? 6 : 10);
+  if (bp.a < 0) return y;
   const clear = _dem ? 1.6 : 1.2;
   const start = _dem ? 24 : 80;     // procedural: keep ground below road within 80 m
   const slope = _dem ? 0.55 : 0.30;
-  const ceiling = _track.py[ni] - clear + Math.max(0, dist - start) * slope;
+  // the cone applies per BRANCH and the lowest wins — where two sections pass
+  // close (crossover, parallel legs) neither may have terrain poking onto it
+  let ceiling = Infinity;
+  for (const ni of [bp.a, bp.b]) {
+    if (ni < 0) continue;
+    const dist = Math.hypot(_track.px[ni] - x, _track.pz[ni] - z);
+    ceiling = Math.min(ceiling, _track.py[ni] - clear + Math.max(0, dist - start) * slope);
+  }
   return Math.min(y, ceiling);
 }
 
-// visual ground height anywhere: road / apron ribbon / blend zone / raw DEM
-export function worldGround(track, x, z) {
-  const q = track.query(x, z, {});
+// visual ground height anywhere: road / apron ribbon / blend zone / raw DEM.
+// Optional yRef (e.g. camera height) resolves crossover branches height-aware;
+// without it the ground follows the LOWER branch so an underpass stays open.
+export function worldGround(track, x, z, yRef) {
+  const q = yRef === undefined ? track.queryGround(x, z, {}) : track.query(x, z, {}, yRef);
   if (!q) return demHeight(x, z);
   const ad = Math.abs(q.d);
   if (ad <= ROAD_HALF) return q.y;
