@@ -77,9 +77,16 @@ export class Room {
     const att = ws.deserializeAttachment();
     if (!att) return;
     if (typeof msg === 'string') {                     // low-rate control (chat/lap/race)
-      if (msg.length > 300) return;
+      if (msg.length > 300) {
+        // WebRTC signaling (phone-controller pairing): SDP blobs are a few KB.
+        // One-shot relay, hibernation-friendly — no state kept.
+        if (msg.length > 8192) return;
+        let m; try { m = JSON.parse(msg); } catch (e) { return; }
+        if (m.t === 'rtc') { m.i = att.i; this._broadcast(JSON.stringify(m), ws); }
+        return;
+      }
       let m; try { m = JSON.parse(msg); } catch (e) { return; }
-      if (m.t === 'chat' || m.t === 'lap' || m.t === 'best') {
+      if (m.t === 'chat' || m.t === 'lap' || m.t === 'best' || m.t === 'rtc') {
         m.i = att.i;
         this._broadcast(JSON.stringify(m), ws);
         return;

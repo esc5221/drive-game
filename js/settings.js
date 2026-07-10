@@ -117,6 +117,12 @@ export class SettingsPanel {
       ['Full line', () => this.api.setLineMode(2)],
     ])));
 
+    if (this.api.padPair && !this.api.isTouch) {
+      gen.appendChild(ROW('Controller', group('pad', [
+        ['📱 폰 컨트롤러 연결', () => this.api.padPair()],
+      ])));
+    }
+
     gen.appendChild(ROW('Display', [
       ...group('ghost', [['Ghost', () => this.api.toggle('ghost')]]),
       ...(this.api.setWatch ? group('watch', [['Autopilot (watch)', () => { this.api.setWatch(!this.api.getState().watch); this.close(); }]]) : []),

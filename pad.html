@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Nürburgring Drive — 폰 컨트롤러</title>
+<meta name="description" content="폰을 핸들로 — 기울여서 조향하는 무선 컨트롤러.">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: none; }
+  body {
+    background: radial-gradient(ellipse at 50% 0%, #142234, #03070d 70%);
+    color: #dfe4ea; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  /* ---- connect screen ---- */
+  #connect { position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 24px; gap: 4px; }
+  #connect h1 { font-size: 20px; font-weight: 800; letter-spacing: 3px; color: #fff; margin: 0; }
+  #connect h1 span { color: #ffd24a; }
+  #connect .sub { font-size: 11px; letter-spacing: 4px; color: #7ec8ff; font-weight: 700; margin-bottom: 26px; }
+  .coderow { display: flex; gap: 8px; width: min(320px, 86vw); }
+  .coderow input { flex: 1; background: rgba(255,255,255,0.06); color: #fff;
+    border: 1.5px solid rgba(255,255,255,0.16); border-radius: 10px; padding: 13px;
+    font-size: 20px; font-weight: 700; letter-spacing: 8px; text-align: center;
+    text-transform: uppercase; outline: none; font-family: inherit; }
+  .coderow input:focus { border-color: #7ec8ff; }
+  #go { margin-top: 14px; width: min(320px, 86vw); padding: 15px; font-size: 16px; font-weight: 800;
+    letter-spacing: 2px; color: #07140e; background: linear-gradient(180deg,#7ee0a8,#46c483);
+    border: none; border-radius: 11px; font-family: inherit; }
+  #go:disabled { filter: grayscale(0.8) brightness(0.6); }
+  #recent { margin-top: 12px; background: none; border: none; color: #7ec8ff; font-size: 14px;
+    font-family: inherit; text-decoration: underline; }
+  #cstat { min-height: 20px; margin-top: 14px; font-size: 13.5px; color: #8aa0b6; text-align: center; }
+  #cstat.err { color: #ff9a80; }
+
+  /* ---- calibrate screen ---- */
+  #calib { position: fixed; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; }
+  #calib .phone { font-size: 54px; }
+  #calib p { color: #8aa0b6; font-size: 15px; max-width: 420px; line-height: 1.5; margin: 0; }
+  #calib p b { color: #dfe4ea; }
+  #start { margin-top: 16px; padding: 16px 44px; font-size: 17px; font-weight: 800; letter-spacing: 2px;
+    color: #07140e; background: linear-gradient(180deg,#7ee0a8,#46c483); border: none;
+    border-radius: 12px; font-family: inherit; }
+
+  /* ---- drive screen ---- */
+  #drive { position: fixed; inset: 0; display: none; }
+  #topbar { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center;
+    justify-content: center; gap: 8px; padding: 8px max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left)); }
+  .tbtn { background: rgba(255,255,255,0.07); color: #cfd6df; border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 9px; padding: 9px 15px; font-size: 13.5px; font-weight: 700; font-family: inherit; }
+  .tbtn:active { background: rgba(126,200,255,0.3); }
+  #stat { flex: 1; text-align: center; font-size: 12.5px; font-weight: 700; letter-spacing: 1px; color: #8aa0b6;
+    font-family: ui-monospace, SFMono-Regular, monospace; white-space: nowrap; overflow: hidden; }
+  #stat.p2p { color: #7ee0a8; } #stat.relay { color: #ffd24a; } #stat.err { color: #ff9a80; }
+
+  .pedal { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); top: 56px; width: 27vw;
+    border-radius: 18px; border: 1.5px solid rgba(255,255,255,0.14);
+    display: flex; align-items: flex-end; justify-content: center; overflow: hidden; }
+  #brake { left: max(12px, env(safe-area-inset-left)); background: rgba(200,60,50,0.10); }
+  #throttle { right: max(12px, env(safe-area-inset-right)); background: rgba(70,196,131,0.10); }
+  .pedal .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0%; pointer-events: none; }
+  #brake .fill { background: rgba(224,80,64,0.42); }
+  #throttle .fill { background: rgba(88,214,141,0.38); }
+  .pedal .lab { position: relative; padding-bottom: 16px; font-size: 13px; font-weight: 800;
+    letter-spacing: 3px; color: rgba(255,255,255,0.5); pointer-events: none; }
+
+  #center { position: absolute; left: 29vw; right: 29vw; top: 56px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
+  #gauge { width: 100%; max-width: 340px; height: 14px; border-radius: 7px;
+    background: rgba(255,255,255,0.08); position: relative; }
+  #gauge .tick { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px;
+    background: rgba(255,255,255,0.25); }
+  #needle { position: absolute; top: 50%; left: 50%; width: 22px; height: 22px; border-radius: 50%;
+    background: #7ec8ff; transform: translate(-50%, -50%); box-shadow: 0 0 12px rgba(126,200,255,0.7); }
+  #zero { background: rgba(255,255,255,0.07); color: #cfd6df; border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 999px; padding: 11px 24px; font-size: 13.5px; font-weight: 700; font-family: inherit; }
+  #gearrow { display: flex; gap: 12px; }
+  .gbtn { background: rgba(255,255,255,0.07); color: #cfd6df; border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 12px; padding: 13px 26px; font-size: 16px; font-weight: 800; font-family: inherit; }
+  .gbtn:active { background: rgba(126,200,255,0.3); }
+
+  #rotate { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 12px; background: rgba(3,7,13,0.96); z-index: 50; text-align: center; }
+  #rotate .ic { font-size: 46px; }
+  #rotate p { color: #8aa0b6; font-size: 15px; }
+</style>
+</head>
+<body>
+  <div id="connect">
+    <h1>NÜRBURGRING<span> DRIVE</span></h1>
+    <div class="sub">PHONE CONTROLLER</div>
+    <div class="coderow"><input id="code" placeholder="코드 입력" maxlength="8" autocomplete="off"></div>
+    <button id="go">연결</button>
+    <button id="recent" style="display:none"></button>
+    <div id="cstat">게임 설정(P) → 📱 폰 컨트롤러에서 코드를 확인하세요</div>
+  </div>
+
+  <div id="calib">
+    <div class="phone">📱↔️</div>
+    <p><b>폰을 가로로, 핸들처럼 편하게 잡으세요.</b><br>
+       버튼을 누르는 순간의 자세가 <b>조향 0점</b>이 됩니다.<br>
+       좌우로 기울이면 핸들이 돌아갑니다.</p>
+    <button id="start">운전 시작</button>
+  </div>
+
+  <div id="drive">
+    <div id="topbar">
+      <button class="tbtn" id="gdown">⬇ 기어</button>
+      <button class="tbtn" id="gup">⬆ 기어</button>
+      <div id="stat">연결 중…</div>
+      <button class="tbtn" id="cam">캠</button>
+      <button class="tbtn" id="reset">리셋</button>
+    </div>
+    <div class="pedal" id="brake"><div class="fill"></div><div class="lab">BRAKE</div></div>
+    <div class="pedal" id="throttle"><div class="fill"></div><div class="lab">THROTTLE</div></div>
+    <div id="center">
+      <div id="gauge"><div class="tick"></div><div id="needle"></div></div>
+      <button id="zero">◎ 0점 다시 잡기</button>
+      <div id="gearrow"></div>
+    </div>
+  </div>
+
+  <div id="rotate"><div class="ic">🔄</div><p>폰을 가로로 돌려주세요</p></div>
+
+  <script type="module" src="/js/pad.js"></script>
+</body>
+</html>

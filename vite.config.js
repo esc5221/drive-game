@@ -15,6 +15,7 @@ export default defineConfig({
         logic: resolve(root, 'data/game_logic.html'),   // /data/game_logic.html sub-page
         mp: resolve(root, 'multi.html'),                // multiplayer lobby (lightweight, no Three.js)
         showroom: resolve(root, 'showroom.html'),       // car showroom (/showroom, unlinked)
+        pad: resolve(root, 'pad.html'),                 // phone tilt controller (/pad)
       },
     },
   },

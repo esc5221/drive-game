@@ -305,6 +305,7 @@ const settings = new SettingsPanel({
   setCtrl: m => { if (TOUCH) input.setMode(m); },
   setArrows: m => { if (input.setArrows) input.setArrows(m); },
   setPreset: i => { atmo.apply(i); applyNight(); lsSet('ns-preset', String(i)); },
+  padPair: () => { settings.toggle(); ensureNetpad().then(np => np.openPair()); },
   gfxCfg: () => gfx,
   gfxDefs: () => GFX_DEFS,
   gfxPresets: () => PRESET_ORDER,
@@ -397,6 +398,39 @@ resetBtn.addEventListener('click', () => {
   resetBtn.blur();          // give keyboard focus back to the game
   audio.start();
 });
+
+// ---- phone tilt controller (netpad) — lazy: loads only when paired/pairing.
+// Injects into the Input FIELDS (not vehicle.ctrl) so the reverse pedal swap
+// and everything downstream keep working. Keyboard wins while a driving key
+// is held ("last input wins" without a mode switch).
+let netpad = null, _netpadLoading = null;
+function ensureNetpad() {
+  if (netpad) return Promise.resolve(netpad);
+  if (_netpadLoading) return _netpadLoading;
+  _netpadLoading = import('./netpad.js').then(({ NetPad }) => {
+    netpad = new NetPad({
+      hud,
+      onShiftUp: () => vehicle.shiftUp(),
+      onShiftDown: () => vehicle.shiftDown(),
+      onReset: () => recoverToTrack('pad'),
+      onCam: () => { camMode = (camMode + 1) % 3; carVis.setCameraMode(camMode); lsSet('ns-cam', String(camMode)); },
+    });
+    window.__netpad = netpad;              // debug / test handle
+    return netpad;
+  });
+  return _netpadLoading;
+}
+window.__ensureNetpad = ensureNetpad;      // debug / test handle
+if (!IS_VIEW && !BENCH && localStorage.getItem('ns-pad-room')) ensureNetpad();   // paired before
+
+function applyNetpad() {
+  if (!netpad || !netpad.fresh()) return;
+  const kb = input.down('ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space');
+  if (kb) return;                                   // keyboard takes over instantly
+  input.steer = netpad.steer;
+  input.throttle = netpad.throttle;
+  input.brake = netpad.brake;
+}
 
 // reverse handling: holding brake at standstill engages reverse.
 // NOTE: read RAW input, not vehicle.ctrl — pedals are swapped while in reverse
@@ -645,7 +679,7 @@ function loop(now) {
   if (!paused) {
     if (BENCH) autoDrive(vehicle, track, raceLine);   // deterministic load for measurement
     else if (watch) autopilot(vehicle);               // Watch mode: autonomous ideal-line drive
-    else { input.update(dtReal, vehicle); autoReverse(); applyControls(); }
+    else { input.update(dtReal, vehicle); applyNetpad(); autoReverse(); applyControls(); }
     if (mp && mp.inputLocked) {                       // race countdown: hold on the grid
       vehicle.ctrl.steer = 0; vehicle.ctrl.throttle = 0;
       vehicle.ctrl.brake = 1; vehicle.ctrl.handbrake = true;
