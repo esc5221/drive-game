@@ -815,6 +815,8 @@ if (MP_ON) {
       forceCar: id => { if (CARS[id] && id !== carId) { localStorage.setItem('ns-car', id); setCar(id); } },
       forcePreset: i => { if (i !== atmo.idx) { atmo.apply(i); applyNight(); lsSet('ns-preset', String(i)); } },
     });
+    mp.track = track;                    // gap/rank chip (along-track distances)
+    mp.camera = camera;                  // distance-scaled name tags
     mp.auto();
     window.__mp = mp;                    // debug / test handle
   }).catch(() => { /* multiplayer is an add-on — never block the game */ });

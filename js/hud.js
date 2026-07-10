@@ -273,11 +273,21 @@ export class Hud {
     g.fillRect(bx + bw / 2 + vehicle.ctrl.steer * (bw / 2 - 3) - 2, 121, 4, 6);
   }
 
+  // multiplayer: [{x, z, color}] painted as dots on the minimap (null to clear)
+  setRemotes(list) { this._remotes = list; }
+
   _drawMinimap(vehicle) {
     const g = this.mapCtx;
     g.clearRect(0, 0, this.mapCv.width, this.mapCv.height);
     g.drawImage(this.mapBase, 0, 0);
     this._drawDeltaTrail(g);
+    if (this._remotes) {
+      for (const r of this._remotes) {
+        const [rx, ry] = this.mapFn(r.x, r.z);
+        g.fillStyle = r.color;
+        g.beginPath(); g.arc(rx, ry, 3.5, 0, 7); g.fill();
+      }
+    }
     const [x, y] = this.mapFn(vehicle.pos.x, vehicle.pos.z);
     g.fillStyle = '#ff4136';
     g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill();

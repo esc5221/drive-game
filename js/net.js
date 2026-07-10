@@ -121,6 +121,8 @@ export class MPClient {
     this.gridFn = grid || (() => {});     // (slot) => reset the car to its grid slot
     this.forceCar = forceCar || (() => {});     // room-unified car (live setCar)
     this.forcePreset = forcePreset || (() => {}); // room weather (live atmo apply)
+    this.track = null;                    // set by main.js — enables gap/rank HUD
+    this.camera = null;                   // set by main.js — enables tag scaling
     this.host = localStorage.getItem('ns-mp-host') || DEFAULT_HOST;
     this.ws = null; this.room = null; this.you = 0;
     this.players = new Map();            // idx -> RemotePlayer
@@ -300,6 +302,7 @@ export class MPClient {
       this._beep(880, 0.4);
       this.inputLocked = false;
       this.racing = true;
+      this._resetProgress();               // rank counts arc progress from GO
       this._cdActive = false;
       setTimeout(() => { ov.style.display = 'none'; ov.style.color = '#ffd24a'; }, 900);
     }
@@ -327,6 +330,53 @@ export class MPClient {
     this._render();                      // READY CTA returns for the rematch
   }
 
+  // ---- gap / rank chip ---------------------------------------------------------
+  // Along-track gaps to the nearest opponent ahead/behind (centreline arc, half-
+  // lap wrap — correct through corners where straight-line distance lies). While
+  // racing, gaps read in seconds (dist / my speed) and a P-rank leads the line,
+  // ordered by cumulative arc progress since GO.
+  _updateGap(vehicle) {
+    const el = this._gap;
+    if (!el) return;
+    const T = this.track.total;
+    const wrapHalf = d => { d %= T; if (d > T / 2) d -= T; if (d < -T / 2) d += T; return d; };
+    const myS = vehicle.trackS;
+    const mds = wrapHalf(myS - (this._myPrevS ?? myS));
+    this._myPrevS = myS;
+    this._myProg = (this._myProg || 0) + mds;
+    let ahead = null, behind = null, rank = 1, n = 0;
+    for (const p of this.players.values()) {
+      const m = p.car.mesh;
+      if (!m.visible) { p._prevS = undefined; continue; }
+      const q = this.track.query(m.position.x, m.position.z, this._gapQ || (this._gapQ = {}), m.position.y);
+      if (!q) continue;
+      n++;
+      const pds = wrapHalf(q.s - (p._prevS ?? q.s));
+      p._prevS = q.s;
+      p.prog = (p.prog || 0) + pds;
+      if (p.prog > this._myProg) rank++;
+      const gap = wrapHalf(q.s - myS);
+      const color = '#' + p.car.color.getHexString();
+      if (gap >= 0) { if (!ahead || gap < ahead.gap) ahead = { nick: p.nick, gap, color }; }
+      else { if (!behind || gap > behind.gap) behind = { nick: p.nick, gap, color }; }
+    }
+    if (!n) { el.style.display = 'none'; return; }
+    const secs = this.racing;
+    const spd = Math.max(8, vehicle.speed || 0);          // m/s floor so gaps don't blow up at rest
+    const fmt = g => secs ? (Math.abs(g) / spd).toFixed(1) + 's' : Math.round(Math.abs(g)) + 'm';
+    let html = '';
+    if (this.racing) html += `<b>P${rank}/${n + 1}</b>`;
+    if (ahead) html += `<span><i style="color:${ahead.color}">▲</i>${ahead.nick} +${fmt(ahead.gap)}</span>`;
+    if (behind) html += `<span><i style="color:${behind.color}">▼</i>${behind.nick} −${fmt(behind.gap)}</span>`;
+    el.innerHTML = html;
+    el.style.display = html ? 'flex' : 'none';
+  }
+
+  _resetProgress() {
+    this._myProg = 0; this._myPrevS = undefined;
+    for (const p of this.players.values()) { p.prog = 0; p._prevS = undefined; }
+  }
+
   _finish(i, ms) {
     if (this.finishers.some(f => f.i === i)) return;
     const nick = i === this.you ? '나' : (this.players.get(i)?.nick || '?');
@@ -348,7 +398,21 @@ export class MPClient {
 
   // called every frame from the game loop
   update(dt, vehicle, paused) {
-    for (const p of this.players.values()) p.update();
+    for (const p of this.players.values()) {
+      p.update();
+      if (this.camera && p.car.mesh.visible) p.car.tagUpdate(this.camera.position);
+    }
+    // minimap dots + gap chip (throttled — position reads are cheap, query isn't)
+    if (this.hud && this.hud.setRemotes) {
+      const list = [];
+      for (const p of this.players.values()) {
+        if (!p.car.mesh.visible) continue;
+        list.push({ x: p.car.mesh.position.x, z: p.car.mesh.position.z, color: '#' + p.car.color.getHexString() });
+      }
+      this.hud.setRemotes(list.length ? list : null);
+    }
+    this._gapAcc = (this._gapAcc || 0) + dt;
+    if (this.track && vehicle && this._gapAcc > 0.25) { this._gapAcc = 0; this._updateGap(vehicle); }
     if (!this.connected) return;
     this._ka += dt;
     if (this._ka > 25) { this._ka = 0; try { this.ws.send('ping'); } catch (e) {} }
@@ -400,7 +464,14 @@ export class MPClient {
       .mp-res-row span { flex:1; }
       .mp-res-row i { font-style:normal; font-family:ui-monospace,monospace; }
       .mp-res-row.me { background:rgba(126,200,255,0.10); border-radius:6px; }
-      .mp-res-hint { margin-top:10px; font-size:11.5px; color:#8aa0b6; text-align:center; }`;
+      .mp-res-hint { margin-top:10px; font-size:11.5px; color:#8aa0b6; text-align:center; }
+      #mp-gap { position:absolute; bottom:100%; left:0; margin-bottom:6px; display:none;
+        gap:10px; align-items:baseline; white-space:nowrap; pointer-events:none;
+        font-family:ui-monospace,SFMono-Regular,monospace; font-size:12.5px; color:#dfe4ea;
+        background:rgba(8,14,22,0.66); border-radius:7px; padding:4px 9px; }
+      #mp-gap b { color:#ffd24a; font-size:13.5px; }
+      #mp-gap i { font-style:normal; margin-right:4px; }
+      body.ns-view #mp-gap { display:none !important; }`;
     document.head.appendChild(st);
     const el = document.createElement('div');
     el.id = 'mp-chip';
@@ -415,6 +486,10 @@ export class MPClient {
     this._res = document.createElement('div');
     this._res.id = 'mp-res';
     document.body.appendChild(this._res);
+    // gap/rank chip rides on the minimap wrap so it tracks both layouts
+    this._gap = document.createElement('div');
+    this._gap.id = 'mp-gap';
+    (document.getElementById('minimap-wrap') || document.body).appendChild(this._gap);
     this._render();
   }
   _status(msg) { if (this.hud) this.hud.flash(msg, '#ff9a66'); }

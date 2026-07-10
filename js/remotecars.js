@@ -12,6 +12,8 @@ function tint(i) {                                     // stable distinct hue pe
   return new THREE.Color().setHSL(h / 360, 0.72, 0.55);
 }
 
+export { tint };
+
 function nameSprite(text, color) {
   const cv = document.createElement('canvas');
   cv.width = 256; cv.height = 64;
@@ -40,11 +42,13 @@ export class RemoteCar {
     cabin.position.set(0, 0.74, 0.15);
     this.box = new THREE.Group();
     this.box.add(body, cabin);
-    g.add(this.box, nameSprite(nick, color));
+    this.tag = nameSprite(nick, color);
+    g.add(this.box, this.tag);
     g.visible = false;
     scene.add(g);
     this.mesh = g;
     this.mat = mat;
+    this.color = color;
     this._spinAngle = 0;
     this._holders = [];                  // per-wheel steer groups (fronts turn)
 
@@ -93,6 +97,16 @@ export class RemoteCar {
       h.children[0].userData.spin.rotation.x = -this._spinAngle;
     }
     if (this.lightsMat) this.lightsMat.emissiveIntensity = brake > 0.25 ? 2.8 : 0.5;
+  }
+
+  // keep the name tag readable at distance: constant screen size past ~28 m,
+  // fading out beyond ~500 m so the horizon doesn't collect floating labels
+  tagUpdate(camPos) {
+    const d = camPos.distanceTo(this.mesh.position);
+    const k = Math.min(18, Math.max(1, d / 28));
+    this.tag.scale.set(2.6 * k, 0.65 * k, 1);
+    this.tag.position.y = 1.75 + (k - 1) * 0.35;
+    this.tag.material.opacity = d > 500 ? Math.max(0, 1 - (d - 500) / 150) : 1;
   }
 
   fade(f) {
