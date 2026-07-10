@@ -154,7 +154,20 @@ export class MPClient {
       n = (typed || n).slice(0, 16);
       localStorage.setItem('ns-nick', n);
     }
-    return n;
+    return (n + (this._nick2 || '')).slice(0, 16);
+  }
+
+  // 2P on one machine: both windows share localStorage, so the second window
+  // would join with an identical nick. First window holds a Web Lock; any
+  // further window gets a '·2' suffix.
+  _claimNick() {
+    if (!navigator.locks) return Promise.resolve('');
+    return new Promise(res => {
+      navigator.locks.request('ns-mp-nick', { ifAvailable: true }, lock => {
+        res(lock ? '' : '·2');
+        if (lock) return new Promise(() => {});   // hold until this tab closes
+      }).catch(() => res(''));
+    });
   }
 
   async create() {
@@ -198,7 +211,8 @@ export class MPClient {
     } catch (e) { this._status('서버 연결 실패'); }
   }
 
-  _connect(code) {
+  async _connect(code) {
+    if (this._nick2 === undefined) this._nick2 = await this._claimNick();
     const wsHost = this.host.replace(/^http/, 'ws');
     const q = `nick=${encodeURIComponent(this.nick())}&car=${encodeURIComponent(this.carId)}`;
     const ws = new WebSocket(`${wsHost}/room/${code}/ws?${q}`);

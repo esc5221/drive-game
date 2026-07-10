@@ -18,20 +18,40 @@ export class NetPad {
     this.hud = hud;
     this.onBtn = { [BTN.GUP]: onShiftUp, [BTN.GDOWN]: onShiftDown, [BTN.RESET]: onReset, [BTN.CAM]: onCam };
     this.host = localStorage.getItem('ns-mp-host') || DEFAULT_HOST;
-    this.code = localStorage.getItem('ns-pad-room') || null;
+    this.code = null;
     this.steer = 0; this.throttle = 0; this.brake = 0;
     this.path = null;                  // 'p2p' | 'relay' | null
     this.seqLast = -1;
     this._lastRx = 0; this._lastEcho = 0; this._btnPrev = 0;
     this._round = 0;
     this._ui();
-    if (this.code) this._join(this.code);   // paired before: silently accept reconnects
+    // 2P on one machine: the SAVED pad room belongs to exactly one tab. The
+    // first tab claims it via a Web Lock (auto-released when the tab dies);
+    // any further tab gets its own session-scoped room, so two windows can
+    // each pair their own phone without fighting over one signaling room.
+    this._init = this._claimPrimary().then(primary => {
+      this.primary = primary;
+      this.code = primary ? localStorage.getItem('ns-pad-room')
+                          : sessionStorage.getItem('ns-pad-room-tab');
+      if (this.code) this._join(this.code);   // paired before: silently accept reconnects
+    });
+  }
+
+  _claimPrimary() {
+    if (!navigator.locks) return Promise.resolve(true);
+    return new Promise(res => {
+      navigator.locks.request('ns-pad-primary', { ifAvailable: true }, lock => {
+        res(!!lock);
+        if (lock) return new Promise(() => {});   // hold until this tab closes
+      }).catch(() => res(true));
+    });
   }
 
   fresh() { return this.path && performance.now() - this._lastRx < STALE_MS; }
 
   // ---- room ---------------------------------------------------------------------
   async openPair() {
+    await this._init;
     if (!this.code) {
       try {
         const r = await fetch(this.host + '/create', {
@@ -39,7 +59,8 @@ export class NetPad {
           body: JSON.stringify({ track: 'pad' }),
         });
         this.code = (await r.json()).code;
-        localStorage.setItem('ns-pad-room', this.code);
+        if (this.primary) localStorage.setItem('ns-pad-room', this.code);
+        else sessionStorage.setItem('ns-pad-room-tab', this.code);   // this tab only
         this._join(this.code);
       } catch (e) { if (this.hud) this.hud.flash('컨트롤러 서버 연결 실패', '#ff9a66'); return; }
     }

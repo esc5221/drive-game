@@ -421,7 +421,8 @@ function ensureNetpad() {
   return _netpadLoading;
 }
 window.__ensureNetpad = ensureNetpad;      // debug / test handle
-if (!IS_VIEW && !BENCH && localStorage.getItem('ns-pad-room')) ensureNetpad();   // paired before
+if (!IS_VIEW && !BENCH &&
+    (localStorage.getItem('ns-pad-room') || sessionStorage.getItem('ns-pad-room-tab'))) ensureNetpad();   // paired before
 
 function applyNetpad() {
   if (!netpad || !netpad.fresh()) return;
