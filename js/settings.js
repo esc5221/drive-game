@@ -119,7 +119,7 @@ export class SettingsPanel {
 
     if (this.api.padPair && !this.api.isTouch) {
       gen.appendChild(ROW('Controller', group('pad', [
-        ['📱 폰 컨트롤러 연결', () => this.api.padPair()],
+        ['📱 Phone Controller', () => this.api.padPair()],
       ])));
     }
 
