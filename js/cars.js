@@ -57,6 +57,7 @@ export const CARS = {
         paint: 'HHyundai_ElantraNRewardRecycled_2022Paint_Material1',
         lights: 'HHyundai_ElantraNRewardRecycled_2022LightA_Material1',
         wheelTag: 'Wheel_1A_', caliperTag: 'Calliper_',
+        tail: 'red_glass',                             // brake-light lens material
       },
     },
     dialMax: 8, dialRed: 7, dialSpeed: 300,
@@ -109,6 +110,7 @@ export const CARS = {
         src: './models/911.glb', dz: -0.22, wheelY: -0.30, wheelR: 0.33,
         paint: 'paint', lights: 'lights', caliper: 'Material.001',
         axleFront: 'Cylinder001', axleRear: 'Cylinder000',
+        tailNode: 'Plane001',                          // brake light: lens pixels in the map glow
       },
     },
     dialMax: 10, dialRed: 9, dialSpeed: 340,
@@ -164,6 +166,7 @@ export const CARS = {
         src: './models/911.glb', dz: -0.22, wheelY: -0.30, wheelR: 0.33,
         paint: 'paint', lights: 'lights', caliper: 'Material.001',
         axleFront: 'Cylinder001', axleRear: 'Cylinder000',
+        tailNode: 'Plane001',                          // brake light: lens pixels in the map glow
       },
       // loft-surfaced body (carbody.js) — hand-tuned 992 GT3 RS silhouette
       body: {

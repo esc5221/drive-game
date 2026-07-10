@@ -588,9 +588,11 @@ export class Vehicle {
   maxSteerAngle() {
     // speed-sensitive lock matched to tire physics: roughly the angle that
     // saturates front slip + kinematic term, so full keyboard deflection is
-    // always near (not far past) the grip limit. 32deg crawling, ~3deg at 180.
+    // always near (not far past) the grip limit. 35deg crawling, ~3deg at 180.
+    // Low/mid-speed lock raised ~25% (hairpins needed a wider arc than the
+    // road allowed); the steeper falloff keeps the high-speed lock unchanged.
     const v = Math.abs(this.speed);
-    return THREE.MathUtils.clamp(0.56 / (1 + Math.pow(v / 11, 1.5)), 0.05, 0.56);
+    return THREE.MathUtils.clamp(0.62 / (1 + Math.pow(v / 13, 1.7)), 0.05, 0.62);
   }
 
   get speedKmh() { return Math.abs(this.speed) * 3.6; }

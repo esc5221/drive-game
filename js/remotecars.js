@@ -74,7 +74,8 @@ export class RemoteCar {
         this.box = null;
         this.mesh.add(model);
         this.model = model;
-        this.lightsMat = kit.headlightMat;
+        this.tailMat = kit.tailMat;
+        this.tailLo = kit.tailMat ? kit.tailMat.emissiveIntensity : 0;
         this.wheelR = W.radius;
       });
     }
@@ -96,7 +97,7 @@ export class RemoteCar {
       if (i < 2) h.rotation.y = -steer * 0.42;       // ~24° visual lock
       h.children[0].userData.spin.rotation.x = -this._spinAngle;
     }
-    if (this.lightsMat) this.lightsMat.emissiveIntensity = brake > 0.25 ? 2.8 : 0.5;
+    if (this.tailMat) this.tailMat.emissiveIntensity = brake > 0.1 ? 2.6 : this.tailLo;
   }
 
   // keep the name tag readable at distance: constant screen size past ~28 m,

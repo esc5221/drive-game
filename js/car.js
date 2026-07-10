@@ -94,13 +94,34 @@ export function buildExteriorKit(spec, cb) {
     root.traverse(o => { if (o.isLight || /^Hemi/.test(o.name || '')) junk.push(o); });
     junk.forEach(o => o.parent && o.parent.remove(o));
 
-    // materials: paint recolour + headlight emissive hook
-    let headlightMat = null;
+    // materials: paint recolour + headlight emissive hook + brake-light material.
+    // Tail lights come in two shapes: a dedicated material (M.tail, e.g. the
+    // Elantra's 'red_glass') or baked into a shared texture, in which case
+    // M.tailNode names the tail-light MESH — its material is cloned with the
+    // colour map as emissiveMap, so on brake only the lens pixels glow.
+    let headlightMat = null, tailMat = null;
     root.traverse(o => {
       if (!o.isMesh) return;
       o.castShadow = true;
       const m = o.material;
       if (!m) return;
+      if (M.tail && m.name === M.tail) {
+        m.transparent = false;            // solid lens (transmission would drop it below)
+        m.transmission = 0;
+        m.emissive = new THREE.Color(0xff1a1a);
+        m.emissiveIntensity = 0.12;
+        tailMat = m;
+        return;
+      }
+      if (M.tailNode && o.name.includes(M.tailNode) && !tailMat) {
+        const c = m.clone();
+        c.emissive = new THREE.Color(0xffffff);
+        c.emissiveMap = c.map || null;    // lens pixels are red in the map
+        c.emissiveIntensity = 0;
+        o.material = c;
+        tailMat = c;
+        return;
+      }
       // transmissive glass forces three into an extra whole-scene render pass —
       // swap it for plain dark glass (reads the same at game distances)
       if (m.transmission > 0) {
@@ -212,7 +233,7 @@ export function buildExteriorKit(spec, cb) {
 
     // body placement: align wheel centres to the physics rest pose
     wrap.position.set(0, staticWheelY - M.wheelY, M.dz || 0);
-    cb({ wrap, wheels, wheelXFix, headlightMat, staticWheelY });
+    cb({ wrap, wheels, wheelXFix, headlightMat, tailMat, staticWheelY });
   });
 }
 
@@ -413,6 +434,7 @@ export class CarVisual {
     const tail = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.07, 0.04), tailMat);
     tail.position.set(0, rearY - 0.20, 2.16);
     this.exterior.add(tail);
+    this._tailMat = tailMat; this._tailLo = 0.7; this._tailHi = 2.4;   // brake light
 
     // ---- completion details: arches, splitter, diffuser, rockers, exhaust, fin
     const W = this.spec.wheels;
@@ -502,6 +524,11 @@ export class CarVisual {
       if (this._modelDead) return;
       if (kit.wheelXFix.length) this._wheelXFix = kit.wheelXFix;
       if (kit.headlightMat) this._headlightMat = kit.headlightMat;
+      if (kit.tailMat) {
+        this._tailMat = kit.tailMat;
+        this._tailLo = kit.tailMat.emissiveIntensity;   // resting glow set by the kit
+        this._tailHi = 2.6;
+      }
       kit.wheels.forEach((wg, i) => {
         if (!wg) return;
         const grp = this.wheelMeshes[i];
@@ -547,6 +574,7 @@ export class CarVisual {
     const bar = new THREE.Mesh(new THREE.BoxGeometry(B.tailW, 0.045, 0.03), tailMat);   // full-width light bar
     bar.position.set(0, B.tailY, B.z1 - 0.015);
     this.exterior.add(bar);
+    this._tailMat = tailMat; this._tailLo = 0.9; this._tailHi = 2.6;   // brake light
 
     // ---- aero / trim ----------------------------------------------------------
     const splitter = new THREE.Mesh(new THREE.BoxGeometry(V.body.width[0][1] * 2 + 0.1, 0.035, 0.30), darkMat);
@@ -1206,6 +1234,11 @@ export class CarVisual {
       g.position.set(this._wheelXFix ? this._wheelXFix[i] : w.x, w.attachY - w.restLen + w.comp, w.z);
       g.rotation.y = -w.steer;
       g.userData.spin.rotation.x = -w.spinAngle;
+    }
+
+    // brake light: lens glow follows the pedal
+    if (this._tailMat) {
+      this._tailMat.emissiveIntensity = vehicle.ctrl.brake > 0.02 ? this._tailHi : this._tailLo;
     }
 
     // shift lights scale with the car's redline
