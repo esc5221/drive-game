@@ -302,6 +302,7 @@ export class MPClient {
       this._beep(880, 0.4);
       this.inputLocked = false;
       this.racing = true;
+      this._goAt = performance.now();      // race clock: GO -> finish line
       this._resetProgress();               // rank counts arc progress from GO
       this._cdActive = false;
       setTimeout(() => { ov.style.display = 'none'; ov.style.color = '#ffd24a'; }, 900);
@@ -325,8 +326,13 @@ export class MPClient {
   onLap(ms, valid) {
     if (!this.racing || !this.connected) return;
     this.racing = false;                 // my race lap is done
-    try { this.ws.send(JSON.stringify({ t: 'lap', ms: Math.round(ms) })); } catch (e) {}
-    this._finish(this.you, Math.round(ms));
+    // race time is GO -> finish line, NOT the hud lap time (whose clock only
+    // starts at the start line): the staggered grid makes rear slots cross the
+    // line later, so a slower arrival could show a FASTER "lap" — rank and
+    // time contradicted each other on the results board.
+    const raceMs = this._goAt ? Math.round(performance.now() - this._goAt) : Math.round(ms);
+    try { this.ws.send(JSON.stringify({ t: 'lap', ms: raceMs })); } catch (e) {}
+    this._finish(this.you, raceMs);
     this._render();                      // READY CTA returns for the rematch
   }
 
@@ -381,6 +387,7 @@ export class MPClient {
     if (this.finishers.some(f => f.i === i)) return;
     const nick = i === this.you ? '나' : (this.players.get(i)?.nick || '?');
     this.finishers.push({ i, nick, ms });
+    this.finishers.sort((a, b) => a.ms - b.ms);   // rank by race time, not message arrival
     this._showResults();
   }
 
